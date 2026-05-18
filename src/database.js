@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -10,7 +10,7 @@ const dbDir = join(__dirname, '..', 'data');
 mkdirSync(dbDir, { recursive: true });
 
 const db = new Database(join(dbDir, 'bot.db'));
-db.pragma('journal_mode = WAL');
+db.exec('PRAGMA journal_mode = WAL');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_history (
@@ -101,7 +101,7 @@ export function setServerConfig(guildId, key, value) {
 }
 
 export function getMcServer(guildId) {
-  return stmts.getMcServer.get(guildId);
+  return stmts.getMcServer.get(guildId) ?? undefined;
 }
 
 export function setMcServer(guildId, { host, port, channelId, messageId, refreshMinutes }) {

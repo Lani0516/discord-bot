@@ -3,14 +3,14 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Commands
-- `npm install` — install dependencies
-- `npm run deploy` — register slash commands with Discord (guild-scoped)
-- `npm start` — start the bot
-- `npm run dev` — start with --watch for auto-reload
-- `npm test` — run tests (node:test)
+- `bun install` — install dependencies
+- `bun run deploy` — register slash commands with Discord (guild-scoped)
+- `bun start` — start the bot
+- `bun run dev` — start with --watch for auto-reload
+- `bun test` — run tests
 
 ## Architecture
-- Node.js v24, ESM modules throughout (import/export)
+- Bun runtime, ESM modules throughout (import/export)
 - discord.js v14 with slash commands only
 - `src/index.js` loads commands from `src/commands/**/*.js` and events from `src/events/*.js`
 - Each command exports `{ data: SlashCommandBuilder, execute: async (interaction) => void }`

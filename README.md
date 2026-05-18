@@ -48,7 +48,7 @@
 
 ## 技術架構
 
-- **Node.js v24** — ESM 模組
+- **Bun** — runtime + 套件管理
 - **discord.js v14** — Slash Commands
 - **Google Gemini** — AI 聊天
 - **better-sqlite3** — 本地資料庫
@@ -59,7 +59,7 @@
 ```bash
 git clone https://github.com/Lani0516/discord-bot.git
 cd discord-bot
-npm install
+bun install
 ```
 
 ## 設定
@@ -81,19 +81,19 @@ GUILD_ID=開發用伺服器 ID
 
 ```bash
 # 註冊 Slash Commands
-npm run deploy
+bun run deploy
 
 # 啟動 Bot
-npm start
+bun start
 
 # 開發模式（自動重載）
-npm run dev
+bun run dev
 ```
 
 ## 測試
 
 ```bash
-npm test
+bun test
 ```
 
 ## 授權
