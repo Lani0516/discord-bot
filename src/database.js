@@ -12,36 +12,36 @@ mkdirSync(dbDir, { recursive: true });
 const db = new Database(join(dbDir, 'bot.db'));
 db.pragma('journal_mode = WAL');
 
-export function initDb() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS chat_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT NOT NULL,
-      guild_id TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('user', 'model')),
-      content TEXT NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch())
-    );
-    CREATE INDEX IF NOT EXISTS idx_chat_history_lookup
-      ON chat_history(user_id, guild_id, created_at);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS chat_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('user', 'model')),
+    content TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE INDEX IF NOT EXISTS idx_chat_history_lookup
+    ON chat_history(user_id, guild_id, created_at);
 
-    CREATE TABLE IF NOT EXISTS server_config (
-      guild_id TEXT NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (guild_id, key)
-    );
+  CREATE TABLE IF NOT EXISTS server_config (
+    guild_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT,
+    PRIMARY KEY (guild_id, key)
+  );
 
-    CREATE TABLE IF NOT EXISTS mc_servers (
-      guild_id TEXT PRIMARY KEY,
-      host TEXT NOT NULL,
-      port INTEGER NOT NULL DEFAULT 25565,
-      channel_id TEXT NOT NULL,
-      message_id TEXT,
-      refresh_minutes INTEGER NOT NULL DEFAULT 5
-    );
-  `);
-}
+  CREATE TABLE IF NOT EXISTS mc_servers (
+    guild_id TEXT PRIMARY KEY,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL DEFAULT 25565,
+    channel_id TEXT NOT NULL,
+    message_id TEXT,
+    refresh_minutes INTEGER NOT NULL DEFAULT 5
+  );
+`);
+
+export function initDb() {}
 
 const stmts = {
   getChatHistory: db.prepare(
