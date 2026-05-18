@@ -57,7 +57,7 @@
 ## 安裝
 
 ```bash
-git clone https://github.com/your-username/discord-bot.git
+git clone https://github.com/Lani0516/discord-bot.git
 cd discord-bot
 npm install
 ```
