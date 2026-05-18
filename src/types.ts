@@ -78,6 +78,13 @@ export interface McServerStatus {
   host: string;
   port: number;
   version?: string;
+  protocol?: number;
   motd?: string;
-  players?: { online: number; max: number };
+  motdRaw?: string;
+  latency?: number;
+  players?: {
+    online: number;
+    max: number;
+    sample?: { name: string; id: string }[] | null;
+  };
 }
