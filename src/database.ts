@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import type { ChatHistoryRow, McServerRow, McServerInput } from './types.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -41,7 +42,7 @@ db.exec(`
   );
 `);
 
-export function initDb() {}
+export function initDb(): void {}
 
 const stmts = {
   getChatHistory: db.prepare(
@@ -79,43 +80,43 @@ const stmts = {
   ),
 };
 
-export function getChatHistory(userId, guildId, limit = 50) {
-  return stmts.getChatHistory.all(userId, guildId, limit).reverse();
+export function getChatHistory(userId: string, guildId: string, limit: number = 50): Pick<ChatHistoryRow, 'role' | 'content'>[] {
+  return (stmts.getChatHistory.all(userId, guildId, limit) as Pick<ChatHistoryRow, 'role' | 'content'>[]).reverse();
 }
 
-export function addChatMessage(userId, guildId, role, content) {
+export function addChatMessage(userId: string, guildId: string, role: 'user' | 'model', content: string): void {
   stmts.addChatMessage.run(userId, guildId, role, content);
 }
 
-export function clearChatHistory(userId, guildId) {
+export function clearChatHistory(userId: string, guildId: string): void {
   stmts.clearChatHistory.run(userId, guildId);
 }
 
-export function getServerConfig(guildId, key) {
-  const row = stmts.getServerConfig.get(guildId, key);
+export function getServerConfig(guildId: string, key: string): string | null {
+  const row = stmts.getServerConfig.get(guildId, key) as { value: string } | null;
   return row ? row.value : null;
 }
 
-export function setServerConfig(guildId, key, value) {
+export function setServerConfig(guildId: string, key: string, value: string): void {
   stmts.setServerConfig.run(guildId, key, value);
 }
 
-export function getMcServer(guildId) {
-  return stmts.getMcServer.get(guildId) ?? undefined;
+export function getMcServer(guildId: string): McServerRow | undefined {
+  return (stmts.getMcServer.get(guildId) as McServerRow | null) ?? undefined;
 }
 
-export function setMcServer(guildId, { host, port, channelId, messageId, refreshMinutes }) {
+export function setMcServer(guildId: string, { host, port, channelId, messageId, refreshMinutes }: McServerInput): void {
   stmts.setMcServer.run(guildId, host, port, channelId, messageId ?? null, refreshMinutes);
 }
 
-export function updateMcMessageId(guildId, messageId) {
+export function updateMcMessageId(guildId: string, messageId: string): void {
   stmts.updateMcMessageId.run(messageId, guildId);
 }
 
-export function removeMcServer(guildId) {
+export function removeMcServer(guildId: string): void {
   stmts.removeMcServer.run(guildId);
 }
 
-export function getAllMcServers() {
-  return stmts.getAllMcServers.all();
+export function getAllMcServers(): McServerRow[] {
+  return stmts.getAllMcServers.all() as McServerRow[];
 }

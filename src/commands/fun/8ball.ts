@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
 
 const responses = [
   '毫無疑問。', '當然是的。', '毋庸置疑。', '是的，絕對是。', '你可以信賴它。',
@@ -12,16 +12,16 @@ export const data = new SlashCommandBuilder()
   .setDescription('詢問神奇 8 號球')
   .addStringOption(opt => opt.setName('question').setDescription('你的問題').setRequired(true));
 
-export async function execute(interaction) {
-  const question = interaction.options.getString('question');
+export async function execute(interaction: ChatInputCommandInteraction) {
+  const question = interaction.options.getString('question')!;
   const answer = responses[Math.floor(Math.random() * responses.length)];
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle('🎱 神奇 8 號球')
+    .setTitle('神奇 8 號球的回答')
     .addFields(
-      { name: '❓ 問題', value: question },
-      { name: '🔮 回答', value: answer },
+      { name: '你的提問', value: question },
+      { name: '命運的回答', value: answer },
     );
 
   await interaction.reply({ embeds: [embed] });

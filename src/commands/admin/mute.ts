@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ChatInputCommandInteraction, GuildMember } from 'discord.js';
 
 export const data = new SlashCommandBuilder()
   .setName('mute')
@@ -8,23 +8,23 @@ export const data = new SlashCommandBuilder()
   .addStringOption(opt => opt.setName('reason').setDescription('原因'))
   .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers);
 
-export async function execute(interaction) {
-  const target = interaction.options.getMember('user');
-  const duration = interaction.options.getInteger('duration');
+export async function execute(interaction: ChatInputCommandInteraction) {
+  const target = interaction.options.getMember('user') as GuildMember | null;
+  const duration = interaction.options.getInteger('duration')!;
   const reason = interaction.options.getString('reason') || '未提供原因';
 
   if (!target) {
-    return interaction.reply({ content: '❌ 找不到該成員。', ephemeral: true });
+    return interaction.reply({ content: '找不到該成員，對方可能已經離開伺服器。', ephemeral: true });
   }
   if (!target.moderatable) {
-    return interaction.reply({ content: '❌ 我無法禁言此成員（權限不足）。', ephemeral: true });
+    return interaction.reply({ content: '我的權限不足以禁言此成員，對方的身分組可能高於我。', ephemeral: true });
   }
 
   await target.timeout(duration * 60 * 1000, reason);
 
   const embed = new EmbedBuilder()
     .setColor(0xffaa00)
-    .setTitle('🔇 成員已被禁言')
+    .setTitle('【禁言通知】成員已被暫時禁言')
     .addFields(
       { name: '成員', value: `${target.user.tag}`, inline: true },
       { name: '時長', value: `${duration} 分鐘`, inline: true },

@@ -3,7 +3,8 @@ import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { initDb } from './database.js';
+import { initDb } from './database.ts';
+import type { BotCommand, BotEvent } from './types.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -21,14 +22,14 @@ const client = new Client({
 client.commands = new Collection();
 client.cooldowns = new Collection();
 
-function loadCommandsFromDir(dir) {
+function loadCommandsFromDir(dir: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true });
-  const files = [];
+  const files: string[] = [];
   for (const entry of entries) {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
       files.push(...loadCommandsFromDir(fullPath));
-    } else if (entry.name.endsWith('.js')) {
+    } else if (entry.name.endsWith('.ts')) {
       files.push(fullPath);
     }
   }
@@ -39,20 +40,20 @@ const commandsPath = join(__dirname, 'commands');
 const commandFiles = loadCommandsFromDir(commandsPath);
 
 for (const filePath of commandFiles) {
-  const command = await import(pathToFileURL(filePath).href);
+  const command = await import(pathToFileURL(filePath).href) as Partial<BotCommand>;
   if (command.data && command.execute) {
-    client.commands.set(command.data.name, command);
+    client.commands.set(command.data.name, command as BotCommand);
   } else {
     console.warn(`[WARNING] Command at ${filePath} missing "data" or "execute" export.`);
   }
 }
 
 const eventsPath = join(__dirname, 'events');
-const eventFiles = readdirSync(eventsPath).filter(f => f.endsWith('.js'));
+const eventFiles = readdirSync(eventsPath).filter(f => f.endsWith('.ts'));
 
 for (const file of eventFiles) {
   const filePath = join(eventsPath, file);
-  const event = await import(pathToFileURL(filePath).href);
+  const event = await import(pathToFileURL(filePath).href) as BotEvent;
   if (event.once) {
     client.once(event.name, (...args) => event.execute(...args));
   } else {

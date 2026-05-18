@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Commands
 - `bun install` — install dependencies
@@ -8,16 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `bun start` — start the bot
 - `bun run dev` — start with --watch for auto-reload
 - `bun test` — run tests
-- `bun run typecheck` — run TypeScript type checking
 
 ## Architecture
-- TypeScript with Bun runtime, ESM modules throughout (import/export)
+- Bun runtime, ESM modules throughout (import/export)
 - discord.js v14 with slash commands only
-- `src/types.ts` defines shared interfaces (BotCommand, BotEvent, DB row types, discord.js Client augmentation)
-- `src/index.ts` loads commands from `src/commands/**/*.ts` and events from `src/events/*.ts`
-- Each command exports `{ data: SlashCommandBuilder, execute: async (interaction: ChatInputCommandInteraction) => void }`
+- `src/index.js` loads commands from `src/commands/**/*.js` and events from `src/events/*.js`
+- Each command exports `{ data: SlashCommandBuilder, execute: async (interaction) => void }`
 - Each event exports `{ name: string, once?: boolean, execute: (...args) => void }`
-- `database.ts` exports pure functions using bun:sqlite sync API
+- `database.js` exports pure functions using better-sqlite3 sync API
 - SQLite at `./data/bot.db` (auto-created)
 - Tables: `chat_history`, `server_config`, `mc_servers`
 

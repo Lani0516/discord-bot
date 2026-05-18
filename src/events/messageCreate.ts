@@ -1,13 +1,13 @@
-import { Events } from 'discord.js';
-import { getAiResponse, isOnCooldown, setCooldown } from '../utils/gemini.js';
-import { getServerConfig } from '../database.js';
+import { Events, Message, TextChannel } from 'discord.js';
+import { getAiResponse, isOnCooldown, setCooldown } from '../utils/gemini.ts';
+import { getServerConfig } from '../database.ts';
 
 export const name = Events.MessageCreate;
 
-export async function execute(message) {
+export async function execute(message: Message) {
   if (message.author.bot || !message.guild) return;
 
-  const isMentioned = message.mentions.has(message.client.user);
+  const isMentioned = message.mentions.has(message.client.user!);
   const aiChannelId = getServerConfig(message.guild.id, 'ai_channel_id');
   const isAiChannel = aiChannelId && aiChannelId === message.channel.id;
 
@@ -17,22 +17,23 @@ export async function execute(message) {
   if (!content) return;
 
   if (isOnCooldown(message.author.id)) {
-    const reply = await message.reply('⏳ 請稍等幾秒再試。');
+    const reply = await message.reply('你的訊息傳送得太快了，請稍等幾秒再試一次。');
     setTimeout(() => reply.delete().catch(() => {}), 3000);
     return;
   }
 
   setCooldown(message.author.id);
-  await message.channel.sendTyping();
+  const channel = message.channel as TextChannel;
+  await channel.sendTyping();
 
   const userContext = {
-    displayName: message.member.displayName,
-    roles: message.member.roles.cache
+    displayName: message.member!.displayName,
+    roles: message.member!.roles.cache
       .filter(r => r.name !== '@everyone')
       .map(r => r.name)
       .join(', ') || '無',
-    textChannel: message.channel.name,
-    voiceChannel: message.member.voice?.channel?.name || null,
+    textChannel: channel.name,
+    voiceChannel: message.member!.voice?.channel?.name || null,
   };
 
   const response = await getAiResponse(
@@ -47,14 +48,14 @@ export async function execute(message) {
     if (i === 0) {
       await message.reply(chunks[i]);
     } else {
-      await message.channel.send(chunks[i]);
+      await channel.send(chunks[i]);
     }
   }
 }
 
-function splitMessage(text, maxLength = 2000) {
+function splitMessage(text: string, maxLength: number = 2000): string[] {
   if (text.length <= maxLength) return [text];
-  const chunks = [];
+  const chunks: string[] = [];
   while (text.length > 0) {
     chunks.push(text.slice(0, maxLength));
     text = text.slice(maxLength);

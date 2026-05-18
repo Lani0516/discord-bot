@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
 
 export const data = new SlashCommandBuilder()
   .setName('dice')
@@ -6,11 +6,11 @@ export const data = new SlashCommandBuilder()
   .addIntegerOption(opt => opt.setName('sides').setDescription('骰子面數').setMinValue(2).setMaxValue(100))
   .addIntegerOption(opt => opt.setName('count').setDescription('骰子數量').setMinValue(1).setMaxValue(10));
 
-export async function execute(interaction) {
+export async function execute(interaction: ChatInputCommandInteraction) {
   const sides = interaction.options.getInteger('sides') || 6;
   const count = interaction.options.getInteger('count') || 1;
 
-  const results = [];
+  const results: number[] = [];
   for (let i = 0; i < count; i++) {
     results.push(Math.floor(Math.random() * sides) + 1);
   }
@@ -20,7 +20,7 @@ export async function execute(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle(`🎲 擲 ${count}d${sides}`)
+    .setTitle(`骰子結果 — 擲出 ${count}d${sides}`)
     .setDescription(detail);
 
   await interaction.reply({ embeds: [embed] });

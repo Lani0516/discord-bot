@@ -13,7 +13,8 @@ import {
   updateMcMessageId,
   removeMcServer,
   getAllMcServers,
-} from '../src/database.js';
+} from '../src/database.ts';
+import type { McServerRow } from '../src/types.ts';
 
 before(() => {
   initDb();
@@ -86,7 +87,7 @@ describe('mc_servers', () => {
       messageId: '456',
       refreshMinutes: 5,
     });
-    const server = getMcServer(guildId);
+    const server = getMcServer(guildId) as McServerRow;
     assert.equal(server.host, 'mc.example.com');
     assert.equal(server.port, 25565);
     assert.equal(server.channel_id, '123');
@@ -95,7 +96,7 @@ describe('mc_servers', () => {
 
   it('updates message ID', () => {
     updateMcMessageId(guildId, '789');
-    assert.equal(getMcServer(guildId).message_id, '789');
+    assert.equal(getMcServer(guildId)!.message_id, '789');
   });
 
   it('lists all servers', () => {
