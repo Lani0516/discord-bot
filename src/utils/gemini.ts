@@ -1,7 +1,9 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getChatHistory, addChatMessage, clearChatHistory, getServerConfig } from '../database.ts';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+const genAI = geminiApiKey ? new GoogleGenerativeAI(geminiApiKey) : null;
+const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
 
 const DEFAULT_SYSTEM_PROMPT = '你是一個友善的 Discord 機器人助手。請用繁體中文回覆。根據使用者的語言自動切換回覆語言。';
 
@@ -26,6 +28,10 @@ interface AiUserContext {
 
 export async function getAiResponse(userId: string, guildId: string, userMessage: string, userContext: AiUserContext): Promise<string> {
   try {
+    if (!genAI) {
+      throw new Error('Missing required environment variable: GEMINI_API_KEY');
+    }
+
     const systemPrompt = getServerConfig(guildId, 'system_prompt') || DEFAULT_SYSTEM_PROMPT;
 
     const contextString = [
@@ -44,7 +50,7 @@ export async function getAiResponse(userId: string, guildId: string, userMessage
     }));
 
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: GEMINI_MODEL,
       systemInstruction: systemPrompt,
     });
 

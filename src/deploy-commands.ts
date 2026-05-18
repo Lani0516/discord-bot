@@ -26,6 +26,34 @@ const commands: ReturnType<BotCommand['data']['toJSON']>[] = [];
 const commandsPath = join(__dirname, 'commands');
 const commandFiles = loadCommandsFromDir(commandsPath);
 
+function getEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value || undefined;
+}
+
+function requireEnv(name: string): string {
+  const value = getEnv(name);
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+function getClientId(botToken: string): string {
+  const configuredClientId = getEnv('CLIENT_ID');
+  if (configuredClientId) return configuredClientId;
+
+  const tokenId = botToken.split('.')[0];
+  const decodedId = Buffer.from(tokenId, 'base64url').toString('utf8');
+
+  if (!/^\d{17,20}$/.test(decodedId)) {
+    throw new Error('Missing required environment variable: CLIENT_ID');
+  }
+
+  console.warn('CLIENT_ID is empty; using the bot id decoded from BOT_TOKEN.');
+  return decodedId;
+}
+
 for (const filePath of commandFiles) {
   const command = await import(pathToFileURL(filePath).href) as Partial<BotCommand>;
   if (command.data) {
@@ -33,12 +61,16 @@ for (const filePath of commandFiles) {
   }
 }
 
-const rest = new REST().setToken(process.env.BOT_TOKEN!);
+const botToken = requireEnv('BOT_TOKEN');
+const clientId = getClientId(botToken);
+const guildId = requireEnv('GUILD_ID');
+
+const rest = new REST().setToken(botToken);
 
 try {
   console.log(`Registering ${commands.length} slash commands...`);
   await rest.put(
-    Routes.applicationGuildCommands(process.env.CLIENT_ID!, process.env.GUILD_ID!),
+    Routes.applicationGuildCommands(clientId, guildId),
     { body: commands },
   );
   console.log(`Successfully registered ${commands.length} commands.`);

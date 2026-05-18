@@ -73,6 +73,7 @@ cp .env.example .env
 ```env
 BOT_TOKEN=你的 Discord Bot Token
 GEMINI_API_KEY=你的 Google Gemini API Key
+GEMINI_MODEL=gemini-2.5-flash
 CLIENT_ID=你的 Discord Application ID
 GUILD_ID=開發用伺服器 ID
 ```
