@@ -55,6 +55,24 @@ export interface McServerInput {
   refreshMinutes: number;
 }
 
+export interface AiUsageInput {
+  guildId: string;
+  userId: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface AiUsageSummary {
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+}
+
 export interface McServerStatus {
   online: boolean;
   host: string;

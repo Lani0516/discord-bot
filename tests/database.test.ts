@@ -1,6 +1,5 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { unlinkSync } from 'fs';
 import {
   initDb,
   getChatHistory,
@@ -13,6 +12,9 @@ import {
   updateMcMessageId,
   removeMcServer,
   getAllMcServers,
+  recordAiUsage,
+  getMonthlyAiUsage,
+  getMonthlyUserAiUsage,
 } from '../src/database.ts';
 import type { McServerRow } from '../src/types.ts';
 
@@ -40,11 +42,23 @@ describe('chat_history', () => {
   });
 
   it('respects limit', () => {
+    clearChatHistory(userId, guildId);
     for (let i = 0; i < 60; i++) {
       addChatMessage(userId, guildId, 'user', `msg ${i}`);
     }
     const history = getChatHistory(userId, guildId, 10);
     assert.equal(history.length, 10);
+  });
+
+  it('keeps only the 20 most recent messages by default', () => {
+    clearChatHistory(userId, guildId);
+    for (let i = 0; i < 25; i++) {
+      addChatMessage(userId, guildId, 'user', `msg ${i}`);
+    }
+    const history = getChatHistory(userId, guildId);
+    assert.equal(history.length, 20);
+    assert.equal(history[0].content, 'msg 5');
+    assert.equal(history[19].content, 'msg 24');
   });
 
   it('clears history', () => {
@@ -69,6 +83,33 @@ describe('server_config', () => {
   it('upserts config', () => {
     setServerConfig(guildId, 'test_key', 'new_value');
     assert.equal(getServerConfig(guildId, 'test_key'), 'new_value');
+  });
+});
+
+describe('ai_usage', () => {
+  const guildId = 'test_guild_usage';
+  const userId = 'test_user_usage';
+  const monthStartUnix = Math.floor(new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime() / 1000);
+
+  it('records and summarizes monthly AI usage', () => {
+    recordAiUsage({
+      guildId,
+      userId,
+      model: 'gemini-2.5-flash',
+      promptTokens: 100,
+      completionTokens: 50,
+      totalTokens: 150,
+      estimatedCostUsd: 0.000155,
+    });
+
+    const guildUsage = getMonthlyAiUsage(guildId, monthStartUnix);
+    const userUsage = getMonthlyUserAiUsage(guildId, userId, monthStartUnix);
+
+    assert.equal(guildUsage.requests, 1);
+    assert.equal(guildUsage.promptTokens, 100);
+    assert.equal(guildUsage.completionTokens, 50);
+    assert.equal(guildUsage.totalTokens, 150);
+    assert.equal(userUsage.requests, 1);
   });
 });
 

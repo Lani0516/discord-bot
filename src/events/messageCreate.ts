@@ -17,7 +17,10 @@ export async function execute(message: Message) {
   if (!content) return;
 
   if (isOnCooldown(message.author.id)) {
-    const reply = await message.reply('你的訊息傳送得太快了，請稍等幾秒再試一次。');
+    const reply = await message.reply({
+      content: '你的訊息傳送得太快了，請稍等幾秒再試一次。',
+      allowedMentions: { repliedUser: false },
+    });
     setTimeout(() => reply.delete().catch(() => {}), 3000);
     return;
   }
@@ -34,6 +37,11 @@ export async function execute(message: Message) {
       .join(', ') || '無',
     textChannel: channel.name,
     voiceChannel: message.member!.voice?.channel?.name || null,
+    guildEmojis: message.guild.emojis.cache
+      .filter(emoji => emoji.available)
+      .first(20)
+      .map(emoji => `${emoji.name}=${emoji.animated ? '<a' : '<'}:${emoji.name}:${emoji.id}>`)
+      .join(', ') || '無',
   };
 
   const response = await getAiResponse(
@@ -46,7 +54,10 @@ export async function execute(message: Message) {
   const chunks = splitMessage(response);
   for (let i = 0; i < chunks.length; i++) {
     if (i === 0) {
-      await message.reply(chunks[i]);
+      await message.reply({
+        content: chunks[i],
+        allowedMentions: { repliedUser: false },
+      });
     } else {
       await channel.send(chunks[i]);
     }

@@ -1,5 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getChatHistory, addChatMessage, clearChatHistory, getServerConfig } from '../database.ts';
+import {
+  getChatHistory,
+  addChatMessage,
+  clearChatHistory,
+  getServerConfig,
+  recordAiUsage,
+} from '../database.ts';
 
 const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
 const genAI = geminiApiKey ? new GoogleGenerativeAI(geminiApiKey) : null;
@@ -24,6 +30,20 @@ interface AiUserContext {
   roles: string;
   textChannel: string;
   voiceChannel: string | null;
+  guildEmojis: string;
+}
+
+function estimateCostUsd(model: string, promptTokens: number, completionTokens: number): number {
+  const normalizedModel = model.toLowerCase();
+  const rates = normalizedModel.includes('2.5-pro')
+    ? { input: 1.25, output: 10 }
+    : normalizedModel.includes('2.5-flash-lite')
+      ? { input: 0.10, output: 0.40 }
+      : normalizedModel.includes('2.0-flash')
+        ? { input: 0.10, output: 0.40 }
+        : { input: 0.30, output: 2.50 };
+
+  return (promptTokens / 1_000_000) * rates.input + (completionTokens / 1_000_000) * rates.output;
 }
 
 export async function getAiResponse(userId: string, guildId: string, userMessage: string, userContext: AiUserContext): Promise<string> {
@@ -40,6 +60,7 @@ export async function getAiResponse(userId: string, guildId: string, userMessage
       `身分組: ${userContext.roles}`,
       `文字頻道: ${userContext.textChannel}`,
       `語音頻道: ${userContext.voiceChannel || '無'}`,
+      `可用伺服器表情: ${userContext.guildEmojis}`,
     ].join('\n');
 
     const fullMessage = `${contextString}\n\n${userMessage}`;
@@ -57,9 +78,22 @@ export async function getAiResponse(userId: string, guildId: string, userMessage
     const chat = model.startChat({ history });
     const result = await chat.sendMessage(fullMessage);
     const responseText = result.response.text();
+    const usage = result.response.usageMetadata;
 
     addChatMessage(userId, guildId, 'user', userMessage);
     addChatMessage(userId, guildId, 'model', responseText);
+
+    if (usage) {
+      recordAiUsage({
+        guildId,
+        userId,
+        model: GEMINI_MODEL,
+        promptTokens: usage.promptTokenCount,
+        completionTokens: usage.candidatesTokenCount,
+        totalTokens: usage.totalTokenCount,
+        estimatedCostUsd: estimateCostUsd(GEMINI_MODEL, usage.promptTokenCount, usage.candidatesTokenCount),
+      });
+    }
 
     return responseText;
   } catch (error) {
