@@ -70,14 +70,67 @@ if (process.env.SMOKE_TEST === '1') {
   process.exit(0);
 }
 
-// Liveness endpoint for container healthcheck / crash-loop monitor.
+// Liveness endpoint for container healthcheck / crash-loop monitor,
+// plus the internal API the agent service calls to post replies back.
 const healthPort = Number(process.env.HEALTH_PORT ?? 8080);
 Bun.serve({
   port: healthPort,
-  fetch() {
+  async fetch(req) {
+    const url = new URL(req.url);
+
+    if (req.method === 'POST' && url.pathname === '/internal/reply') {
+      return handleInternalReply(req);
+    }
+
     const ready = client.isReady();
     return new Response(ready ? 'ok' : 'starting', { status: ready ? 200 : 503 });
   },
 });
+
+interface InternalReplyBody {
+  channelId: string;
+  content: string;
+}
+
+async function handleInternalReply(req: Request): Promise<Response> {
+  const secret = process.env.INTERNAL_SECRET;
+  if (!secret || req.headers.get('x-internal-secret') !== secret) {
+    return new Response('unauthorized', { status: 401 });
+  }
+
+  let body: InternalReplyBody;
+  try {
+    body = (await req.json()) as InternalReplyBody;
+  } catch {
+    return new Response('bad json', { status: 400 });
+  }
+
+  if (!body.channelId || typeof body.content !== 'string') {
+    return new Response('bad request', { status: 400 });
+  }
+
+  try {
+    const channel = await client.channels.fetch(body.channelId);
+    if (!channel || !channel.isSendable()) {
+      return new Response('channel not sendable', { status: 404 });
+    }
+    for (const chunk of chunkMessage(body.content)) {
+      await channel.send(chunk);
+    }
+    return new Response('ok', { status: 200 });
+  } catch (err) {
+    console.error('[internal/reply] send failed:', err);
+    return new Response('send failed', { status: 500 });
+  }
+}
+
+function chunkMessage(text: string, maxLength = 2000): string[] {
+  if (text.length === 0) return [''];
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += maxLength) {
+    chunks.push(text.slice(i, i + maxLength));
+  }
+  return chunks;
+}
 
 client.login(process.env.BOT_TOKEN);
