@@ -17,6 +17,24 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # M2 coding-agent service (repo B). Internal network only, no published ports.
+  # Holds OpenRouter (and later GitHub) creds; the bot never sees them.
+  agent:
+    image: ${AGENT_IMAGE:-ghcr.io/lani0516/discord-agent-service:latest}
+    container_name: discord-agent
+    restart: unless-stopped
+    env_file: .env.agent
+    volumes:
+      - agent-data:/app/data
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # Auto-pulls + redeploys bot when a new image:latest is pushed by CI.
   watchtower:
     image: containrrr/watchtower:latest
@@ -45,4 +63,5 @@ services:
 
 volumes:
   bot-data:
+  agent-data:
   rollback-state:

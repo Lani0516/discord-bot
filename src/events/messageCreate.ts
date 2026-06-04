@@ -1,11 +1,18 @@
 import { Events, Message, TextChannel } from 'discord.js';
 import { getAiResponse, isOnCooldown, setCooldown } from '../utils/gemini.ts';
 import { getServerConfig } from '../database.ts';
+import { forwardToAgent, isAgentConfigured } from '../utils/agent.ts';
 
 export const name = Events.MessageCreate;
 
 export async function execute(message: Message) {
   if (message.author.bot || !message.guild) return;
+
+  const agentChannelId = getServerConfig(message.guild.id, 'agent_channel_id');
+  if (agentChannelId && agentChannelId === message.channel.id) {
+    await handleAgentMessage(message);
+    return;
+  }
 
   const isMentioned = message.mentions.has(message.client.user!);
   const aiChannelId = getServerConfig(message.guild.id, 'ai_channel_id');
@@ -61,6 +68,39 @@ export async function execute(message: Message) {
     } else {
       await channel.send(chunks[i]);
     }
+  }
+}
+
+async function handleAgentMessage(message: Message) {
+  const content = message.content.replace(/<@!?\d+>/g, '').trim();
+  if (!content) return;
+
+  if (!isAgentConfigured()) {
+    await message.reply({
+      content: 'Agent 服務尚未設定（缺 `AGENT_SERVICE_URL` / `INTERNAL_SECRET`）。',
+      allowedMentions: { repliedUser: false },
+    });
+    return;
+  }
+
+  const channel = message.channel as TextChannel;
+  await channel.sendTyping();
+
+  try {
+    await forwardToAgent({
+      guildId: message.guild!.id,
+      channelId: message.channel.id,
+      userId: message.author.id,
+      userName: message.member?.displayName ?? message.author.username,
+      content,
+      messageId: message.id,
+    });
+  } catch (err) {
+    console.error('[agent] forward failed:', err);
+    await message.reply({
+      content: 'Agent 服務目前無法連線，請稍後再試。',
+      allowedMentions: { repliedUser: false },
+    });
   }
 }
 
