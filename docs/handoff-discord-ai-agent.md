@@ -6,7 +6,7 @@
 - **端到端驗證（2026-06-04，全綠）**：agent 頻道丟「新增 /ping 回 Pong」→ DeepSeek 分類 modify → 出計畫 + `[開始]/[取消]` 按鈕 → 點[開始] → worktree → 寫 `src/commands/fun/ping.ts` → push → 開 **PR #18** → harness 四 job **全綠**（quality/build-smoke/security-scan/protected-paths，src-only 無需人工過閘）→ 已 merge。Gemini `ai_channel_id` 路徑同時測試不受影響（回覆正常；模型自報 GPT-4 = 無害幻覺）。
 - M0–M2 已 merge 進 main（兩 repo）。M2 期間 repo B 另補 CI + OpenRouter→DeepSeek 遷移（PR #2，已 merge）。
 - 計畫文件：`~/.claude/plans/steady-shimmying-storm.md`（M3 設計與決策）。
-- **已知問題**：watchtower 自動部署鏈壞（見「環境現況」）→ 目前部署靠手動 `docker compose pull && up -d`。
+- **watchtower 已修復（2026-06-04）**：換維護中 fork `nickfedor/watchtower:1.16.1`（PR #20）+ GHCR auth 改檔案式 config（PR #21）→ 自動部署鏈端到端驗證通過（merge→build-image→watchtower 自動 redeploy→bot healthy）。
 
 ## 唯一真相來源（勿重複）
 - 設計：`docs/ai-agent-design.md`（架構、流程、審批、安全、§8 build order M0–M5）。
@@ -33,12 +33,11 @@
 
 ## 環境現況
 本機 Docker 跑 bot + agent（皆 healthy，bot 連著 Discord `拉你#8459`）+ crash-monitor + watchtower。可 `docker compose down` 收工或保留。
-本機 image 為 GHCR `:latest`（merge 後手動 `docker compose pull && up -d` 更新）。
-**watchtower 壞**：`containrrr/watchtower:latest`（2023 停更）用 Docker API v1.25，新 daemon 最低要 1.40 → crash-loop（`client version 1.25 is too old`）。自動部署鏈因此失效，目前靠手動 pull+up。修法：換維護中 fork（如 `nickfedor/watchtower`）或 pin 相容版。
+本機 image 為 GHCR `:latest`（watchtower 自動 pull+redeploy，無需手動）。
+**watchtower 已修（2026-06-04，PR #20+#21）**：原 `containrrr/watchtower`（2023 停更）用 Docker API v1.25 → 新 daemon（≥1.40）crash-loop（`client version 1.25 is too old`）。已換 `nickfedor/watchtower:1.16.1`（API v1.51 OK）。另：host `~/.docker/config.json` 用 `credsStore=osxkeychain`（token 在 keychain、容器讀不到）→ GHCR digest HEAD 403 → 改掛專用 `~/.docker-watchtower/config.json`（inline `read:packages` token，host-only）。端到端驗證：merge→build-image→watchtower `Found new image`→`updated=1`→bot healthy。
 
 ## 安全注意（已處理 / 待追）
-- 使用者首次 `docker login` 曾把 classic PAT 明文塞進壞掉的 `~/.docker/config.json`，已備份+重置+正規重登；`*.bak.*` 已刪除。
-  **待辦**：建議到 GitHub revoke 該 `read:packages` PAT 重發。
+- 使用者首次 `docker login` 曾把 classic PAT 明文塞進壞掉的 `~/.docker/config.json`，已備份+重置+正規重登；`*.bak.*` 已刪除、洩漏的 `read:packages` PAT 已 revoke 重發。
 - 勿提交 `.env` 等密鑰。token/key 只進 env。
 
 ## M1 已完成（PR #7，已 merge 進 main）
@@ -87,14 +86,14 @@
 - **repo B（#3）**：`paths.ts`（AUTO/APPROVE 分級）、`repo.ts`（clone+worktree，PAT 走 per-command `http.extraHeader`，不入 URL/log）、`tools.ts`（read/list/write[擋 APPROVE]/run_git[allowlist]/finish）、`github.ts`（開 PR + poll harness checks）、`confirm.ts`（確認 registry+timeout）、`agent-loop.ts`（tool loop maxSteps→commit→push→PR→等 CI→失敗回灌 maxFixRounds→回報，串流進度）。`worker.ts` modify 分支；`server.ts` `/confirm`；`config` 加 `GITHUB_PAT`/`GITHUB_REPO`；Dockerfile 裝 git。本機全綠（typecheck/26 tests/container smoke/docker build）。
 
 ## 下一步
-1. **修 watchtower**（換維護中 fork / pin 相容版）→ 恢復自動部署鏈，否則每次 merge 都要手動 pull+up。
+1. ✓ ~~修 watchtower~~ 已完成（2026-06-04，PR #20+#21）。自動部署鏈恢復。
 2. **M4（審批與懲罰）**：security-scan 由「heuristic hard-fail」改為「flag → mod 核准」；APPROVE 路徑開放（M3 直接擋）；Deny/危險 → 發話者 lockout；每 guild 每日上限 + token/時間預算。
 3. **M5**：見設計 §8。
 4. **建議合併前過一次** `code-review` / `security-review`：M3 動工 loop（PAT 處理、worktree 沙箱、write_file 守衛、CI fix loop）尚未做正式 review。
 
 ## 待人類決定/動作
 - ✓ `.env.agent` 已建（`INTERNAL_SECRET` 兩邊一致、`DEEPSEEK_API_KEY`、`GITHUB_PAT`、`GITHUB_REPO=Lani0516/discord-bot`）；bot `.env` 已對齊 `AGENT_SERVICE_URL`+`INTERNAL_SECRET`。security 已掃：兩 repo 無密鑰外洩、PAT 一致、gitignore OK。
-- **（安全待辦）** GitHub revoke 舊洩漏的 `read:packages` classic PAT 並重發。
+- ✓ 洩漏的 `read:packages` classic PAT 已 revoke 重發；watchtower GHCR auth 改用 `~/.docker-watchtower/config.json`（檔案式 inline token）。
 
 ## 慣例（重要）
 - **改動前先開 branch，完工 PR→merge，絕不直接 commit main**（main→CI build→自動部署）。
