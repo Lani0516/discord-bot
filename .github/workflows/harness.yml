@@ -1,0 +1,67 @@
+name: harness
+
+# PR-gate harness (M1). All "execution" happens here, never on the agent host.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: harness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Test
+        run: bun test
+
+  build-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (load locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: discord-bot:pr-${{ github.event.pull_request.number || github.run_id }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-boot (no Discord login, fake env)
+        run: |
+          docker run --rm -e SMOKE_TEST=1 \
+            discord-bot:pr-${{ github.event.pull_request.number || github.run_id }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch base
+        run: git fetch --no-tags origin "${{ github.event.pull_request.base.ref || 'main' }}"
+      - name: Scan diff
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
+        run: bash scripts/security-scan.sh
+
+  protected-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch base
+        run: git fetch --no-tags origin "${{ github.event.pull_request.base.ref || 'main' }}"
+      - name: Check protected paths
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
+        run: bash scripts/protected-paths.sh
