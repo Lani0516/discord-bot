@@ -36,8 +36,11 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   # Auto-pulls + redeploys bot when a new image:latest is pushed by CI.
+  # Maintained fork (nicholas-fedor/watchtower); original containrrr/watchtower
+  # is archived and uses Docker API v1.25, too old for modern daemons (>=1.40).
+  # Label namespace stays com.centurylinklabs.watchtower.* for compat.
   watchtower:
-    image: containrrr/watchtower:latest
+    image: nickfedor/watchtower:1.16.1
     container_name: watchtower
     restart: unless-stopped
     volumes:
