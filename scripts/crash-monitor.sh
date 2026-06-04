@@ -31,11 +31,23 @@ run_args() {
 }
 net_of() { docker inspect "$C" --format '{{range $k,$_ := .NetworkSettings.Networks}}{{$k}}{{end}}'; }
 
+# Pinnable, pullable reference (repo@sha256:...) of the container's current image.
+# A bare image ID is not durable: it vanishes when its tag is overwritten and the
+# old image is GC'd, leaving nothing to run on rollback. RepoDigest survives.
+good_ref() {
+  iid="$(docker inspect "$C" -f '{{.Image}}' 2>/dev/null)" || return 1
+  docker image inspect "$iid" -f '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' 2>/dev/null
+}
+
 rollback() {
   good="$(cat "$GOOD" 2>/dev/null || true)"
   [ -n "$good" ] || { log "no last-good image recorded; cannot roll back"; return 1; }
   log "ROLLBACK -> $good"
   : > "$LOCK"
+  if ! docker image inspect "$good" >/dev/null 2>&1; then
+    log "last-good not present locally; pulling $good"
+    docker pull "$good" >/dev/null 2>&1 || { log "pull failed; cannot roll back"; rm -f "$LOCK"; return 1; }
+  fi
   args="$(run_args)"; net="$(net_of)"
   docker rm -f "$C" >/dev/null 2>&1 || true
   # shellcheck disable=SC2086
@@ -62,10 +74,10 @@ while true; do
   fi
 
   if [ "$health" = "healthy" ]; then
-    img="$(docker inspect "$C" --format '{{.Image}}' 2>/dev/null || true)"
-    [ -n "$img" ] && [ "$img" != "$(cat "$GOOD" 2>/dev/null || true)" ] && {
-      echo "$img" > "$GOOD"; log "recorded last-good $img"
-    }
+    ref="$(good_ref || true)"
+    if [ -n "$ref" ] && [ "$ref" != "$(cat "$GOOD" 2>/dev/null || true)" ]; then
+      echo "$ref" > "$GOOD"; log "recorded last-good $ref"
+    fi
   fi
 
   delta=$((restarts - base_restarts))
