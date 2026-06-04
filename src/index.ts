@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Client, Collection, GatewayIntentBits } from 'discord.js';
+import { Client, Collection, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -82,6 +82,10 @@ Bun.serve({
       return handleInternalReply(req);
     }
 
+    if (req.method === 'POST' && url.pathname === '/internal/plan') {
+      return handleInternalPlan(req);
+    }
+
     const ready = client.isReady();
     return new Response(ready ? 'ok' : 'starting', { status: ready ? 200 : 503 });
   },
@@ -120,6 +124,62 @@ async function handleInternalReply(req: Request): Promise<Response> {
     return new Response('ok', { status: 200 });
   } catch (err) {
     console.error('[internal/reply] send failed:', err);
+    return new Response('send failed', { status: 500 });
+  }
+}
+
+interface InternalPlanBody {
+  channelId: string;
+  requesterId: string;
+  taskId: number;
+  planText: string;
+}
+
+async function handleInternalPlan(req: Request): Promise<Response> {
+  const secret = process.env.INTERNAL_SECRET;
+  if (!secret || req.headers.get('x-internal-secret') !== secret) {
+    return new Response('unauthorized', { status: 401 });
+  }
+
+  let body: InternalPlanBody;
+  try {
+    body = (await req.json()) as InternalPlanBody;
+  } catch {
+    return new Response('bad json', { status: 400 });
+  }
+
+  if (
+    !body.channelId ||
+    !body.requesterId ||
+    typeof body.taskId !== 'number' ||
+    typeof body.planText !== 'string'
+  ) {
+    return new Response('bad request', { status: 400 });
+  }
+
+  try {
+    const channel = await client.channels.fetch(body.channelId);
+    if (!channel || !channel.isSendable()) {
+      return new Response('channel not sendable', { status: 404 });
+    }
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`agent_start_${body.taskId}_${body.requesterId}`)
+        .setLabel('開始')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`agent_cancel_${body.taskId}_${body.requesterId}`)
+        .setLabel('取消')
+        .setStyle(ButtonStyle.Secondary),
+    );
+    const chunks = chunkMessage(body.planText);
+    for (let i = 0; i < chunks.length; i++) {
+      const isLast = i === chunks.length - 1;
+      await channel.send(isLast ? { content: chunks[i], components: [row] } : chunks[i]);
+    }
+    return new Response('ok', { status: 200 });
+  } catch (err) {
+    console.error('[internal/plan] send failed:', err);
     return new Response('send failed', { status: 500 });
   }
 }
