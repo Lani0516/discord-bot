@@ -25,3 +25,5 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
   await interaction.reply({ embeds: [embed] });
 }
+
+// harness demo: src-only change should pass all four jobs.
