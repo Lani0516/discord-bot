@@ -37,8 +37,8 @@
 **watchtower 壞**：`containrrr/watchtower:latest`（2023 停更）用 Docker API v1.25，新 daemon 最低要 1.40 → crash-loop（`client version 1.25 is too old`）。自動部署鏈因此失效，目前靠手動 pull+up。修法：換維護中 fork（如 `nickfedor/watchtower`）或 pin 相容版。
 
 ## 安全注意（已處理 / 待追）
-- 使用者首次 `docker login` 曾把 classic PAT 明文塞進壞掉的 `~/.docker/config.json`，已備份+重置+正規重登。
-  **待辦**：刪 `~/.docker/config.json.bak.*`（仍含明文 token），並建議到 GitHub revoke 該 `read:packages` PAT 重發。
+- 使用者首次 `docker login` 曾把 classic PAT 明文塞進壞掉的 `~/.docker/config.json`，已備份+重置+正規重登；`*.bak.*` 已刪除。
+  **待辦**：建議到 GitHub revoke 該 `read:packages` PAT 重發。
 - 勿提交 `.env` 等密鑰。token/key 只進 env。
 
 ## M1 已完成（PR #7，已 merge 進 main）
@@ -94,7 +94,7 @@
 
 ## 待人類決定/動作
 - ✓ `.env.agent` 已建（`INTERNAL_SECRET` 兩邊一致、`DEEPSEEK_API_KEY`、`GITHUB_PAT`、`GITHUB_REPO=Lani0516/discord-bot`）；bot `.env` 已對齊 `AGENT_SERVICE_URL`+`INTERNAL_SECRET`。security 已掃：兩 repo 無密鑰外洩、PAT 一致、gitignore OK。
-- **（安全待辦）** GitHub revoke 舊洩漏的 `read:packages` classic PAT 並重發；刪 `~/.docker/config.json.bak.*`（仍含明文 token）。
+- **（安全待辦）** GitHub revoke 舊洩漏的 `read:packages` classic PAT 並重發。
 
 ## 慣例（重要）
 - **改動前先開 branch，完工 PR→merge，絕不直接 commit main**（main→CI build→自動部署）。
