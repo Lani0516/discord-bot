@@ -15,7 +15,7 @@
 [ Bot container ]  ← 只持有 Discord token（thin，slim image）
    │  events (HTTP)            ▲  回貼訊息/按鈕 (HTTP + 共享密鑰)
    ▼                           │
-[ Agent service ]  ← 長駐、獨立。持有 GitHub token + openrouter key
+[ Agent service ]  ← 長駐、獨立。持有 GitHub token + DeepSeek API key
    │  - 單一便宜且支援 tool-calling 的模型（env 設定）
    │  - 每 guild 序列 FIFO queue，同時只跑 1 個 task
    │  - 每步驟狀態寫入 DB，重啟可 resume 或乾淨失敗
@@ -38,8 +38,8 @@
 ### 核心決策
 | 項目 | 決定 |
 |---|---|
-| Agent 引擎 | 自建 loop（openrouter + 自訂工具 + 自訂 harness） |
-| 模型 | 單一便宜可靠的 tool-calling 模型，env 設定，無 fallback |
+| Agent 引擎 | 自建 loop（DeepSeek 官方 API + 自訂工具 + 自訂 harness） |
+| 模型 | 單一便宜可靠的 tool-calling 模型，env 設定，無 fallback；預設使用 `deepseek-v4-flash` |
 | 隔離 | git worktree + branch，PR-gated |
 | 部署 | Docker + watchtower/CI，rollback = 前一 image tag |
 | Agent 執行位置 | 獨立長駐 service（不隨 bot 部署被殺） |
@@ -84,7 +84,7 @@
 | agent 改自己的 guardrails | **物理隔離**：guardrails 在 repo B，token 構造上無法觸及 |
 | 任意程式碼執行 | 無 bash；所有執行在 CI（無正式環境密鑰）；agent host 不跑任何不可信程式碼 |
 | PR 中藏惡意碼 | diff/path 掃描 + 相依套件與網路偵測 → mod 核准；smoke-boot + CI 把關 |
-| 密鑰外洩 | Discord token 只在 bot；GitHub+openrouter 只在 agent；CI 無正式密鑰 |
+| 密鑰外洩 | Discord token 只在 bot；GitHub+DeepSeek API key 只在 agent；CI 無正式密鑰 |
 | 失控 / 燒錢 | 修復迭代上限 + 每 task token/時間預算 + `/agent stop` + 每 guild 每日上限 |
 | 惡意使用者 | Deny/危險 → 發話者 30h lockout |
 | 部署炸機 | CI smoke-boot job + image tag rollback |
@@ -129,6 +129,7 @@ agent loop 是 push 驅動、CI 節奏：write → push → 等 CI → 讀狀態
 - 新增 `agent_channel_id` 設定 + `/set-agent-channel` 指令，獨立 handler。
 - repo A（本 repo `discord-bot`）= 機器人功能；agent 推 branch + 開 PR 於此。
 - repo B（新建）= agent service + 全部 guardrails；agent 無權限。
+- agent service 使用 DeepSeek 官方 API：`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL=deepseek-v4-flash`，呼叫 `https://api.deepseek.com/chat/completions`。
 
 ---
 
@@ -153,7 +154,7 @@ agent loop 是 push 驅動、CI 節奏：write → push → 等 CI → 讀狀態
 ### M2 — Bot↔Agent 骨架（無動工能力）
 - agent-service：HTTP server + 共享密鑰驗證 + 每 guild FIFO queue + DB 狀態表。
 - bot：`/set-agent-channel`、`agent_channel_id` 設定、`messageCreate` 在該頻道把訊息轉給 agent；agent 回貼訊息/按鈕的內部 API。
-- agent 先只做：分類意圖 + 唯讀回覆（openrouter 單模型，可讀 repo，不寫不推）。
+- agent 先只做：分類意圖 + 唯讀回覆（DeepSeek 官方 API 單模型，可讀 repo，不寫不推）。
 - **驗證**：頻道閒聊/問問題能正確唯讀回覆；既有 Gemini 頻道不受影響。
 
 ### M3 — 動工 loop（worktree + write/git，仍 push 才執行）

@@ -1,5 +1,6 @@
 import { Events, Interaction, TextChannel } from 'discord.js';
 import { getMcServer } from '../database.ts';
+import { agentConfirm, type ConfirmAction } from '../utils/agent.ts';
 
 export const name = Events.InteractionCreate;
 
@@ -25,6 +26,30 @@ export async function execute(interaction: Interaction) {
   }
 
   if (interaction.isButton()) {
+    const agentMatch = interaction.customId.match(/^agent_(start|cancel)_(\d+)_(\d+)$/);
+    if (agentMatch) {
+      const action = agentMatch[1] as ConfirmAction;
+      const taskId = Number(agentMatch[2]);
+      const requesterId = agentMatch[3];
+
+      if (interaction.user.id !== requesterId) {
+        await interaction.reply({ content: '只有發話者可確認此計畫。', ephemeral: true });
+        return;
+      }
+
+      await interaction.deferUpdate();
+      try {
+        await agentConfirm(taskId, action);
+        await interaction.message.edit({ components: [] });
+        const channel = interaction.channel as TextChannel | null;
+        await channel?.send(action === 'start' ? '已開始動工。' : '已取消此計畫。');
+      } catch (error) {
+        console.error('Agent confirm button error:', error);
+        await interaction.followUp({ content: '無法連線 Agent 服務，請稍後再試。', ephemeral: true });
+      }
+      return;
+    }
+
     if (interaction.customId === 'mc_refresh') {
       await interaction.deferUpdate();
       try {

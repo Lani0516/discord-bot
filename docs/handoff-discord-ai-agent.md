@@ -1,8 +1,13 @@
 # Handoff — Discord 自我修改 AI Agent
 
 ## 狀態
-**M2（Bot↔Agent 骨架，唯讀）完成且兩 repo 已 merge 進 main。** 進行中：可開始 M3。
-尚未端到端部署驗證（需 `.env.agent` 密鑰 + 跑兩容器）。
+**M3（動工 loop）程式完成，兩 PR 開好待 merge；尚未端到端驗證。**
+- repo A PR **#17**（`feat/m3-agent-confirm-buttons`）：bot 側計畫確認按鈕。CI quality/build-smoke/protected-paths 綠、**security-scan 紅**（新 fetch+讀 INTERNAL_SECRET，縱深防禦，同 M2）→ **須人工 merge**。
+- repo B PR **#3**（`feat/m3-work-loop`）：agent 動工核心。CI **全綠**。
+- **Merge 順序：A 先 → B 後**（B merge→build-image→watchtower 部署 agent）。
+- M0–M2 已 merge 進 main（兩 repo）。M2 期間 repo B 另補 CI + OpenRouter→DeepSeek 遷移（PR #2，已 merge）。
+- 計畫文件：`~/.claude/plans/steady-shimmying-storm.md`（M3 設計與決策）。
+- 尚未端到端部署驗證（需兩容器 + 真 DeepSeek key + PAT）。
 
 ## 唯一真相來源（勿重複）
 - 設計：`docs/ai-agent-design.md`（架構、流程、審批、安全、§8 build order M0–M5）。
@@ -66,7 +71,7 @@
 - `src/server.ts` Bun.serve 埠 8090：`GET /health`、`POST /ingest`（驗密鑰 + payload 驗證 → 入列 → 202）。
 - `src/queue.ts` per-guild 序列 FIFO（同 guild 一次一個、跨 guild 並行、單 job fail 不毒化該 guild 佇列）。
 - `src/db.ts` bun:sqlite `tasks` 狀態表（queued/running/done/error + intent）。
-- `src/worker.ts`：建 task → `classifyAndReply`（openrouter 單模型）→ `postReply` 回貼 bot `/internal/reply` → 標 done；fail 標 error + 回貼錯誤訊息。
+- `src/worker.ts`：建 task → `classifyAndReply`（DeepSeek 官方 API 單模型）→ `postReply` 回貼 bot `/internal/reply` → 標 done；fail 標 error + 回貼錯誤訊息。
 - `src/parse.ts`（無 config 依賴，可測）解析模型 JSON `{intent,reply}`、去 code fence、intent 正規化、非 JSON 退回純文字。intent：`chat`/`question`/`modify_request`/`unknown`；`modify_request` 由 system prompt 引導回「動工 M3 才開放」。
 - Dockerfile（slim Bun、非 root、healthcheck、`SMOKE_TEST`）；`config.ts` 啟動 require 必要 env。
 
@@ -74,18 +79,22 @@
 - 兩 repo `bun run typecheck` + `bun test` 綠（repo A 14 pass；repo B queue FIFO/隔離 + parseReply 6 pass）、`SMOKE_TEST=1` 開機 OK。
 - repo B 本機 HTTP 契約：`/health` 200、`/ingest` 無密鑰 401 / 壞 body 400 / 合法 202、未知路由 404。
 - repo A CI（PR #15）：`quality` + `build-smoke` 綠；`security-scan` + `protected-paths` **故意紅**（M1 縱深防禦：新 `fetch`+`INTERNAL_SECRET` 讀取、改 `CLAUDE.md`+`docker-compose.yml`）→ 以人工 merge 過閘。**未弱化閘門**。`client.channels.fetch` 被當外連 = heuristic 誤報。
-- **未做**：端到端（真 Discord + openrouter key + 兩容器）「頻道唯讀回覆 + Gemini 不受影響」驗證 → 部署時補。
+- **未做**：端到端（真 Discord + DeepSeek API key + 兩容器）「頻道唯讀回覆 + Gemini 不受影響」驗證 → 部署時補。
 
-## 下一步：M3（動工 loop：worktree + write/git，push 才執行）
-設計 §8 M3：typed 工具 `read_file`/`write_file`(路徑分級 AUTO/APPROVE)/`git`(branch/commit/push/PR)；計畫 + `[Start]/[Cancel]`(發話者確認) → worktree + branch → loop → push → 讀 CI → 失敗修(迭代上限) → 過則開 PR；串流「Cur. working」進度到頻道。
-驗證：丟簡單需求（如新 `/ping`），agent 開 PR 且 CI 全綠。
-**先決**：repo B 需 agent 用 fine-grained PAT（repo A only、`Contents:RW`+`Pull requests:RW`）→ 請簽發、只進 agent env。
+## M3 已實作（PR #17 + PR #3，待 merge）
+設計 §8 M3 + 計畫 `~/.claude/plans/steady-shimmying-storm.md`。決策：確認用 **Discord 按鈕**（僅發話者可點）；APPROVE 路徑 **M3 直接擋**（審批留 M4）；分階段 PR。
+- **repo A（#17）**：`POST /internal/plan`（貼計畫 + `[開始]/[取消]` 按鈕，customId `agent_<action>_<taskId>_<requesterId>`）；`interactionCreate` 按鈕處理（發話者驗證）→ `agentConfirm` 中繼到 agent `/confirm`。進度串流續用 `/internal/reply`。
+- **repo B（#3）**：`paths.ts`（AUTO/APPROVE 分級）、`repo.ts`（clone+worktree，PAT 走 per-command `http.extraHeader`，不入 URL/log）、`tools.ts`（read/list/write[擋 APPROVE]/run_git[allowlist]/finish）、`github.ts`（開 PR + poll harness checks）、`confirm.ts`（確認 registry+timeout）、`agent-loop.ts`（tool loop maxSteps→commit→push→PR→等 CI→失敗回灌 maxFixRounds→回報，串流進度）。`worker.ts` modify 分支；`server.ts` `/confirm`；`config` 加 `GITHUB_PAT`/`GITHUB_REPO`；Dockerfile 裝 git。本機全綠（typecheck/26 tests/container smoke/docker build）。
+
+## 下一步
+1. **merge #17（人工）→ merge #3** → 兩容器跑。
+2. **端到端**（task 待辦）：agent 頻道丟「新增 /ping 回 Pong」→ 出計畫 → 點[開始] → 串流 → 開 PR → harness 全綠；確認 Gemini `ai_channel_id` 路徑 + 唯讀 intent 不受影響。
+3. 通過後 → M4（審批與懲罰）。
 
 ## 待人類決定/動作
-- **部署密鑰**：建 `.env.agent`（`INTERNAL_SECRET` 兩邊一致、`OPENROUTER_API_KEY`、`OPENROUTER_MODEL`、`BOT_INTERNAL_URL=http://bot:8080`）；bot `.env` 加 `AGENT_SERVICE_URL=http://agent:8090` + 同一 `INTERNAL_SECRET`。`.env.agent` 已 gitignore，勿提交。
-- **repo B CI**：repo B 目前無 harness/build-image workflow（M2 未加）；agent 服務要進 watchtower 自動部署鏈，需比照 repo A 加 build→push GHCR。M3 前補。
-- **端到端驗證**：deploy 兩容器 + 真 openrouter key → 設 agent 頻道 → 測唯讀回覆 + Gemini 不受影響。
-- M3 用 fine-grained PAT（repo A only, `Contents:RW`+`Pull requests:RW`）→ 請簽發。
+- ✓ `.env.agent` 已建（`INTERNAL_SECRET` 兩邊一致、`DEEPSEEK_API_KEY`、`GITHUB_PAT`、`GITHUB_REPO=Lani0516/discord-bot`）；bot `.env` 已對齊 `AGENT_SERVICE_URL`+`INTERNAL_SECRET`。security 已掃：兩 repo 無密鑰外洩、PAT 一致、gitignore OK。
+- **merge #17 後 merge #3**，再起兩容器做端到端。
+- **（安全待辦）** GitHub revoke 舊洩漏的 `read:packages` classic PAT 並重發。
 
 ## 慣例（重要）
 - **改動前先開 branch，完工 PR→merge，絕不直接 commit main**（main→CI build→自動部署）。
@@ -94,7 +103,7 @@
 - 環境：macOS、fish shell、Bun runtime。
 
 ## 建議 skills
-- `/oh-my-claudecode:executor`（model=opus）：實作 M2–M5。
-- `/tdd`：M2 agent 邏輯（意圖分類 / 內部 API）適合測試先行。
-- `code-review` / `security-review`：M2 內部 API + 共享密鑰驗證立起後過一次。
-- `/grill-me`：若 M2 bot↔agent 協定或意圖分類判準要再釐清。
+- `/verify`：merge 後起兩容器跑 end-to-end /ping，觀察真實行為（task #3）。
+- `code-review` / `security-review`：M3 動工 loop（PAT 處理、worktree 沙箱、write_file 守衛、CI fix loop）合併前過一次。
+- `/oh-my-claudecode:executor`（model=opus）：實作 M4–M5。
+- `/grill-me`：若 M4 審批流判準（哪些改動要 mod 核准、懲罰機制）要再釐清。

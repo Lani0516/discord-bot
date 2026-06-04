@@ -18,7 +18,7 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   # M2 coding-agent service (repo B). Internal network only, no published ports.
-  # Holds OpenRouter (and later GitHub) creds; the bot never sees them.
+  # Holds DeepSeek API (and later GitHub) creds; the bot never sees them.
   agent:
     image: ${AGENT_IMAGE:-ghcr.io/lani0516/discord-agent-service:latest}
     container_name: discord-agent
