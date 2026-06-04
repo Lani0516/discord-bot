@@ -16,8 +16,10 @@ LOCK="$STATE_DIR/rolling-back"
 mkdir -p "$STATE_DIR"
 log() { echo "[crash-monitor] $(date -u +%H:%M:%S) $*"; }
 
-inspect() { docker inspect "$C" 2>/dev/null; }
-field() { inspect | grep -m1 "\"$1\"" | sed 's/.*: *"\{0,1\}//; s/[",].*$//'; }
+# Read a single field via Go template (grep on raw JSON is ambiguous:
+# both .State.Status and .State.Health.Status serialise as "Status").
+state_of()  { docker inspect "$C" -f '{{.State.Status}}' 2>/dev/null || echo unknown; }
+health_of() { docker inspect "$C" -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || echo none; }
 
 # Rebuild docker run flags from the live container's config.
 run_args() {
@@ -48,8 +50,8 @@ base_restarts=""; window_start="$(date +%s)"
 while true; do
   sleep 15
   [ -f "$LOCK" ] && continue
-  state="$(field State)"        # running / restarting / exited ...
-  health="$(field Status)"      # healthy / unhealthy / starting
+  state="$(state_of)"           # running / restarting / exited ...
+  health="$(health_of)"         # healthy / unhealthy / starting / none
   restarts="$(docker inspect "$C" --format '{{.RestartCount}}' 2>/dev/null || echo 0)"
   [ -z "$restarts" ] && restarts=0
   [ -z "$base_restarts" ] && base_restarts="$restarts"
