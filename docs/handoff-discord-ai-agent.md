@@ -1,7 +1,8 @@
 # Handoff — Discord 自我修改 AI Agent
 
 ## 狀態
-**M1（CI harness，無 AI）完成且在 CI 端到端驗證通過。** 進行中：可開始 M2。
+**M2（Bot↔Agent 骨架，唯讀）完成且兩 repo 已 merge 進 main。** 進行中：可開始 M3。
+尚未端到端部署驗證（需 `.env.agent` 密鑰 + 跑兩容器）。
 
 ## 唯一真相來源（勿重複）
 - 設計：`docs/ai-agent-design.md`（架構、流程、審批、安全、§8 build order M0–M5）。
@@ -54,14 +55,37 @@
 - **lint 未做**：repo 無 eslint/prettier/biome 設定；本里程碑以 typecheck 當品質閘，lint 留待後續（加設定恐波及既有檔，刻意縮範圍）。
 - security-scan 為 heuristic + hard-fail（M1 無審批流）；M4 接審批後應改為「flag → mod 核准」而非單純 fail。
 
-## 下一步：M2（Bot↔Agent 骨架，無動工能力）
-設計 §8 M2：agent-service(HTTP + 共享密鑰 + 每 guild FIFO queue + DB 狀態表)；bot 加 `/set-agent-channel`+`agent_channel_id`+轉訊息內部 API；agent 先只做分類意圖 + 唯讀回覆(openrouter 單模型)。
-驗證：頻道閒聊/問答正確唯讀回覆；既有 Gemini 頻道不受影響。
+## M2 已完成（repo A PR #15 + repo B PR #1，均已 merge 進 main）
+**repo A（bot 側，PR #15）**
+- `/set-agent-channel`（ManageGuild）→ 存 `agent_channel_id` 進 `server_config`（generic KV，無 schema 變更）。
+- `events/messageCreate.ts`：agent 頻道訊息 → `utils/agent.ts` `forwardToAgent` → `POST {AGENT_SERVICE_URL}/ingest`（`X-Internal-Secret`）。Gemini `ai_channel_id` 路徑完全不動，agent 頻道優先。
+- `index.ts` health server 擴充 `POST /internal/reply`（驗 `INTERNAL_SECRET` → `client.channels.fetch` → 分段 send，2000 字切塊）。
+- env：`AGENT_SERVICE_URL`、`INTERNAL_SECRET`（`.env.example`/`CLAUDE.md`）；`docker-compose.yml` 加 `agent` 服務（internal-only、無對外埠、`env_file: .env.agent`、healthcheck `/health`、watchtower label）；`.gitignore` 加 `.env.agent`。
+
+**repo B（`../discord-agent-service`，PR #1）= agent-service**
+- `src/server.ts` Bun.serve 埠 8090：`GET /health`、`POST /ingest`（驗密鑰 + payload 驗證 → 入列 → 202）。
+- `src/queue.ts` per-guild 序列 FIFO（同 guild 一次一個、跨 guild 並行、單 job fail 不毒化該 guild 佇列）。
+- `src/db.ts` bun:sqlite `tasks` 狀態表（queued/running/done/error + intent）。
+- `src/worker.ts`：建 task → `classifyAndReply`（openrouter 單模型）→ `postReply` 回貼 bot `/internal/reply` → 標 done；fail 標 error + 回貼錯誤訊息。
+- `src/parse.ts`（無 config 依賴，可測）解析模型 JSON `{intent,reply}`、去 code fence、intent 正規化、非 JSON 退回純文字。intent：`chat`/`question`/`modify_request`/`unknown`；`modify_request` 由 system prompt 引導回「動工 M3 才開放」。
+- Dockerfile（slim Bun、非 root、healthcheck、`SMOKE_TEST`）；`config.ts` 啟動 require 必要 env。
+
+## 驗證結果
+- 兩 repo `bun run typecheck` + `bun test` 綠（repo A 14 pass；repo B queue FIFO/隔離 + parseReply 6 pass）、`SMOKE_TEST=1` 開機 OK。
+- repo B 本機 HTTP 契約：`/health` 200、`/ingest` 無密鑰 401 / 壞 body 400 / 合法 202、未知路由 404。
+- repo A CI（PR #15）：`quality` + `build-smoke` 綠；`security-scan` + `protected-paths` **故意紅**（M1 縱深防禦：新 `fetch`+`INTERNAL_SECRET` 讀取、改 `CLAUDE.md`+`docker-compose.yml`）→ 以人工 merge 過閘。**未弱化閘門**。`client.channels.fetch` 被當外連 = heuristic 誤報。
+- **未做**：端到端（真 Discord + openrouter key + 兩容器）「頻道唯讀回覆 + Gemini 不受影響」驗證 → 部署時補。
+
+## 下一步：M3（動工 loop：worktree + write/git，push 才執行）
+設計 §8 M3：typed 工具 `read_file`/`write_file`(路徑分級 AUTO/APPROVE)/`git`(branch/commit/push/PR)；計畫 + `[Start]/[Cancel]`(發話者確認) → worktree + branch → loop → push → 讀 CI → 失敗修(迭代上限) → 過則開 PR；串流「Cur. working」進度到頻道。
+驗證：丟簡單需求（如新 `/ping`），agent 開 PR 且 CI 全綠。
+**先決**：repo B 需 agent 用 fine-grained PAT（repo A only、`Contents:RW`+`Pull requests:RW`）→ 請簽發、只進 agent env。
 
 ## 待人類決定/動作
-- repo B 空殼已建於 `../discord-agent-service`（含 README/AGENTS.md/.gitignore，自有 git，無 remote）。要 remote：`gh repo create discord-agent-service --private` + push。
-- agent 用的 fine-grained PAT（repo A only, `Contents:RW`+`Pull requests:RW`）M2 才需 → 請簽發。
-- openrouter key（M2 agent 用）→ 請備妥，只進 agent env。
+- **部署密鑰**：建 `.env.agent`（`INTERNAL_SECRET` 兩邊一致、`OPENROUTER_API_KEY`、`OPENROUTER_MODEL`、`BOT_INTERNAL_URL=http://bot:8080`）；bot `.env` 加 `AGENT_SERVICE_URL=http://agent:8090` + 同一 `INTERNAL_SECRET`。`.env.agent` 已 gitignore，勿提交。
+- **repo B CI**：repo B 目前無 harness/build-image workflow（M2 未加）；agent 服務要進 watchtower 自動部署鏈，需比照 repo A 加 build→push GHCR。M3 前補。
+- **端到端驗證**：deploy 兩容器 + 真 openrouter key → 設 agent 頻道 → 測唯讀回覆 + Gemini 不受影響。
+- M3 用 fine-grained PAT（repo A only, `Contents:RW`+`Pull requests:RW`）→ 請簽發。
 
 ## 慣例（重要）
 - **改動前先開 branch，完工 PR→merge，絕不直接 commit main**（main→CI build→自動部署）。
