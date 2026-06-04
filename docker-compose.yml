@@ -45,7 +45,10 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME}/.docker/config.json:/config.json:ro
+      # Host's ~/.docker/config.json uses credsStore=osxkeychain (token in
+      # keychain, not readable inside the container) -> GHCR digest HEAD 403.
+      # Use a dedicated file-based config with an inline read:packages token.
+      - ${HOME}/.docker-watchtower/config.json:/config.json:ro
     command: --label-enable --cleanup --interval 60
 
   # Detects bot crash-loop / sustained unhealthy and rolls back to last good image.
