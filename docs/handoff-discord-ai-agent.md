@@ -1,7 +1,7 @@
 # Handoff — Discord 自我修改 AI Agent
 
 ## 狀態
-**M0（地基與隔離）完成且本機端到端驗證通過。** 進行中：可開始 M1。
+**M1（CI harness，無 AI）完成且在 CI 端到端驗證通過。** 進行中：可開始 M2。
 
 ## 唯一真相來源（勿重複）
 - 設計：`docs/ai-agent-design.md`（架構、流程、審批、安全、§8 build order M0–M5）。
@@ -35,14 +35,33 @@
   **待辦**：刪 `~/.docker/config.json.bak.*`（仍含明文 token），並建議到 GitHub revoke 該 `read:packages` PAT 重發。
 - 勿提交 `.env` 等密鑰。token/key 只進 env。
 
-## 下一步：M1（CI harness，無 AI）
-設計文件 §8 M1：repo A 加 GitHub Actions lint/typecheck/test/build/smoke-boot(假 token) + security scan(diff: 新相依/對外網路/讀 `*SECRET|TOKEN`) + protected-path 複查 job。
-驗證：開幾個 PR 分別觸發各 job pass/fail。
-注意現有 repo 僅 `bun test tests/database.test.ts` 一個測試、`bun run typecheck`、無 lint 設定。
+## M1 已完成（PR #7，已 merge 進 main）
+- `.github/workflows/harness.yml`（trigger: `pull_request` → main），4 job：
+  - **quality**：`bun install --frozen-lockfile` → `bun run typecheck` → `bun test`。
+  - **build-smoke**：docker build(load，不 push) → `docker run -e SMOKE_TEST=1`（假 env，不登入 Discord）。
+  - **security-scan**：diff 掃描 → 新相依(package.json/bun.lock)、對外網路(fetch/http/axios/WebSocket/net)、讀 `*SECRET|TOKEN|KEY|PASSWORD` → 命中 exit 1。
+  - **protected-paths**：diff 動到 infra/CI/guardrails(`.github/**`、`scripts/**`、Dockerfile、docker-compose、AGENTS/CLAUDE/CONTEXT.md、`.env*`，但放行 `.env.example`) → exit 1。
+- 掃描邏輯抽到 `scripts/security-scan.sh` + `scripts/protected-paths.sh`（本機可跑：`scripts/<x>.sh <base-ref>`，bash 3.2 相容，無 globstar）。
+
+## CI 驗證結果（全綠）
+- protected-paths fail：PR #7 自身動 `.github`+`scripts` → 紅（縱深防禦生效；infra 變更須人類 merge，本 PR 即以人工 merge 過閘）。
+- 反向 demo（已開 → 驗證 → 關，未 merge）：
+  - PR #12 src-only → 4 job 全綠。
+  - PR #13 `fetch()`+`process.env.*TOKEN` → security-scan 紅、其餘綠。
+- merge #7 → `build-image` on main success（部署鏈正常）。
+
+## 已知缺口 / 待追（M1）
+- **lint 未做**：repo 無 eslint/prettier/biome 設定；本里程碑以 typecheck 當品質閘，lint 留待後續（加設定恐波及既有檔，刻意縮範圍）。
+- security-scan 為 heuristic + hard-fail（M1 無審批流）；M4 接審批後應改為「flag → mod 核准」而非單純 fail。
+
+## 下一步：M2（Bot↔Agent 骨架，無動工能力）
+設計 §8 M2：agent-service(HTTP + 共享密鑰 + 每 guild FIFO queue + DB 狀態表)；bot 加 `/set-agent-channel`+`agent_channel_id`+轉訊息內部 API；agent 先只做分類意圖 + 唯讀回覆(openrouter 單模型)。
+驗證：頻道閒聊/問答正確唯讀回覆；既有 Gemini 頻道不受影響。
 
 ## 待人類決定/動作
 - repo B 空殼已建於 `../discord-agent-service`（含 README/AGENTS.md/.gitignore，自有 git，無 remote）。要 remote：`gh repo create discord-agent-service --private` + push。
-- agent 用的 fine-grained PAT（repo A only, `Contents:RW`+`Pull requests:RW`）M2 才需。
+- agent 用的 fine-grained PAT（repo A only, `Contents:RW`+`Pull requests:RW`）M2 才需 → 請簽發。
+- openrouter key（M2 agent 用）→ 請備妥，只進 agent env。
 
 ## 慣例（重要）
 - **改動前先開 branch，完工 PR→merge，絕不直接 commit main**（main→CI build→自動部署）。
@@ -51,7 +70,7 @@
 - 環境：macOS、fish shell、Bun runtime。
 
 ## 建議 skills
-- `/tdd`：M1 加測試 / harness job 適合測試先行。
-- `/oh-my-claudecode:executor`（model=opus）：實作 M1–M5。
-- `code-review` / `security-review`：M1 security scan + protected-path 立起後過一次。
-- `/grill-me`：若 M1 各 job 的 pass/fail 判準要再釐清。
+- `/oh-my-claudecode:executor`（model=opus）：實作 M2–M5。
+- `/tdd`：M2 agent 邏輯（意圖分類 / 內部 API）適合測試先行。
+- `code-review` / `security-review`：M2 內部 API + 共享密鑰驗證立起後過一次。
+- `/grill-me`：若 M2 bot↔agent 協定或意圖分類判準要再釐清。
