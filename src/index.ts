@@ -62,4 +62,22 @@ for (const file of eventFiles) {
 }
 
 initDb();
+
+// Smoke / dry-boot: load everything, prove the process starts, then exit 0.
+// Used by CI smoke-boot and local image verification (no Discord login).
+if (process.env.SMOKE_TEST === '1') {
+  console.log('[smoke] boot ok: commands + events + db initialised');
+  process.exit(0);
+}
+
+// Liveness endpoint for container healthcheck / crash-loop monitor.
+const healthPort = Number(process.env.HEALTH_PORT ?? 8080);
+Bun.serve({
+  port: healthPort,
+  fetch() {
+    const ready = client.isReady();
+    return new Response(ready ? 'ok' : 'starting', { status: ready ? 200 : 503 });
+  },
+});
+
 client.login(process.env.BOT_TOKEN);
