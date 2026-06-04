@@ -1,0 +1,48 @@
+services:
+  bot:
+    image: ${BOT_IMAGE:-ghcr.io/lani0516/discord-bot:latest}
+    container_name: discord-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HEALTH_PORT: 8080
+    volumes:
+      - bot-data:/app/data
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Auto-pulls + redeploys bot when a new image:latest is pushed by CI.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.docker/config.json:/config.json:ro
+    command: --label-enable --cleanup --interval 60
+
+  # Detects bot crash-loop / sustained unhealthy and rolls back to last good image.
+  crash-monitor:
+    image: docker:27-cli
+    container_name: crash-monitor
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts/crash-monitor.sh:/crash-monitor.sh:ro
+      - rollback-state:/state
+    environment:
+      TARGET_CONTAINER: discord-bot
+      STATE_DIR: /state
+      MAX_RESTARTS: "3"
+      WINDOW_SECONDS: "180"
+    entrypoint: ["sh", "/crash-monitor.sh"]
+
+volumes:
+  bot-data:
+  rollback-state:
