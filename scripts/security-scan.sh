@@ -4,7 +4,11 @@
 #   1. new/changed dependencies (package.json deps, bun.lock)
 #   2. outbound network calls newly introduced in code
 #   3. new reads of secret-like env vars (*SECRET|TOKEN|KEY|PASSWORD)
-# Heuristic, added-lines only. Exits 1 if anything is flagged.
+# Heuristic, added-lines only.
+#
+# M4: non-blocking. Flags are printed for visibility but the job always exits 0;
+# the real gate is the mod [Merge]/[Reject] approval on the finished PR, which
+# sees these flags. (protected-paths.sh stays hard-fail for infra/guardrails.)
 #
 # Usage: scripts/security-scan.sh [BASE_REF]
 #   BASE_REF defaults to origin/main. Compares BASE_REF...HEAD.
@@ -54,7 +58,8 @@ fi
 
 echo "----"
 if [ "$findings" -gt 0 ]; then
-  echo "security-scan: $findings flag(s) — requires human/mod review before merge."
-  exit 1
+  echo "security-scan: $findings flag(s) — surfaced to mod for [Merge]/[Reject] review (non-blocking)."
+else
+  echo "security-scan: clean."
 fi
-echo "security-scan: clean."
+exit 0
