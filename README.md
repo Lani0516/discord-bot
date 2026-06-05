@@ -29,8 +29,12 @@ AI 聊天使用 Google Gemini API。伺服器管理員可以指定 AI 自動回�
 | `/view-system-prompt` | 查看目前的 AI 系統提示。 | 無特殊權限 |
 | `/clear-history` | 清除自己的 AI 對話紀錄。 | 無特殊權限 |
 | `/ai-usage` | 查看本月 AI API 用量與預估成本，可指定使用者查詢。 | 管理伺服器 |
+| `/set-agent-channel` | 設定自我修改 coding agent 的對話頻道。不選擇頻道時會關閉。 | 管理伺服器 |
+| `/agent-stop` | 停止指定的 coding agent task，可填寫停止原因。 | 管理伺服器 |
 
 設定 AI 頻道後，使用者在該頻道發送一般訊息即可與 AI 對話，不需要額外輸入 Slash Command。系統會保存每位使用者在每個伺服器的最近對話紀錄，讓 AI 回覆能參考上下文。
+
+設定 Agent 頻道後，使用者可在該頻道提出讀取或修改機器人功能的需求。修改需求會交由獨立的 `discord-agent-service` 建立 worktree、開 PR、等待 CI 與管理員審批；Bot 只負責 Discord 訊息與按鈕中繼。管理員可用 `/agent-stop task-id:<id>` 停止進行中、等待確認或等待審批的任務。
 
 ### 趣味互動
 
@@ -57,6 +61,7 @@ Minecraft 功能可以查詢或監控 Java 版伺服器狀態。綁定伺服器�
 - 語言：TypeScript，ESM 模組
 - Discord SDK：discord.js v14
 - AI 服務：Google Gemini API
+- Coding agent：獨立 `discord-agent-service` 容器，使用 DeepSeek API 與 GitHub PR flow
 - 資料庫：Bun 內建 SQLite API
 - Minecraft 查詢：minecraft-server-util
 
@@ -123,6 +128,9 @@ GEMINI_API_KEY=你的 Google Gemini API Key
 GEMINI_MODEL=gemini-2.5-flash
 CLIENT_ID=你的 Discord Application Client ID
 GUILD_ID=開發用 Discord 伺服器 ID
+AGENT_SERVICE_URL=http://agent:8090
+INTERNAL_SECRET=bot 與 agent 共用的內部密鑰
+AUTO_DEPLOY_COMMANDS=true
 ```
 
 環境變數說明：
@@ -134,6 +142,21 @@ GUILD_ID=開發用 Discord 伺服器 ID
 | `GEMINI_MODEL` | 否 | Gemini 模型名稱，未設定時預設使用 `gemini-2.5-flash`。 |
 | `CLIENT_ID` | 是 | Discord Application Client ID，用於註冊 Slash Commands。 |
 | `GUILD_ID` | 是 | 開發用 Discord 伺服器 ID，Slash Commands 會註冊到此伺服器。 |
+| `AGENT_SERVICE_URL` | agent 功能需要 | Agent service 的內部 HTTP URL，Docker Compose 預設為 `http://agent:8090`。 |
+| `INTERNAL_SECRET` | agent 功能需要 | Bot 與 Agent service 之間的共享密鑰，兩邊必須一致。 |
+| `AUTO_DEPLOY_COMMANDS` | 否 | 設為 `true` 時，bot 啟動後會自動註冊 guild slash commands。 |
+| `REQUIRE_COMMAND_DEPLOY` | 否 | 設為 `true` 時，slash command 註冊失敗會讓啟動失敗；預設只記錄錯誤。 |
+
+Agent service 的 DeepSeek、GitHub 與 M5 預算護欄設定放在 `.env.agent`，不由 bot 讀取。常用營運 knobs：
+
+| 變數 | 預設 | 說明 |
+| --- | --- | --- |
+| `MAX_MODIFY_TASKS_PER_GUILD_PER_DAY` | `5` | 每個伺服器 rolling 24h 可發起的修改任務數；`0` 表示關閉此限制。 |
+| `MAX_TASK_WALLCLOCK_MS` | `1800000` | 單一 task 最長執行時間。 |
+| `MAX_TASK_TOKENS` | `60000` | 單一 task 的 DeepSeek token 預算。 |
+| `LOCKOUT_HOURS` | `30` | 管理員拒絕審批或 PR 後，發話者被鎖定修改請求的時間。 |
+| `APPROVE_TIMEOUT_MS` | `600000` | APPROVE 級變更等待管理員審批的時間。 |
+| `MERGE_TIMEOUT_MS` | `1800000` | PR 通過 CI 後等待管理員 merge/reject 的時間。 |
 
 ## 註冊指令
 
@@ -144,6 +167,8 @@ bun run deploy
 ```
 
 目前指令註冊為 guild-scoped，適合開發與單一伺服器部署。若要改成全域指令，需要調整 `src/deploy-commands.ts`。
+
+部署環境可用 `AUTO_DEPLOY_COMMANDS=true` 讓 bot 啟動時自動註冊 slash commands；這是目前 Docker 部署的預設做法。
 
 ## 啟動機器人
 

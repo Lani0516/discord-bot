@@ -1,10 +1,12 @@
 # Handoff — Discord 自我修改 AI Agent
 
 ## 狀態
-**M4（審批與懲罰）已實作，兩 PR 開啟待 merge + 端到端驗證。M3 已完成並 e2e 通過。**
-- M4 PR：repo A **#24**（`feat/m4-mod-gate-buttons`）+ repo B **#5**（`feat/m4-approval-loop`）。先 merge #24（bot 側 dormant）再 merge #5（啟用）。#24 因動 `scripts/security-scan.sh` → protected-paths 紅 → admin merge。
-- 本機全綠：repo A typecheck/smoke OK、`bun test` CI-clean（本機 ai_usage 測試因共用 dev db 累積列失敗，與 M4 無關）；repo B typecheck + `bun test` 36 pass + smoke OK。
-- **尚未做**：兩 PR merge 後的端到端（merge 閘真按 [Merge] + lockout 真鎖）驗證。
+**M5（成本護欄與營運）後端已 merge 並部署；剩 live ops validation 與後續 resume 決策。M4/M3 已完成並 e2e 通過。**
+- M5 PR：repo B **#6**（ops guardrails + `/stop`）與 **#7**（task token budget）已 merge；repo A **#28**（`/agent-stop` slash command）已 merge。
+- 已部署驗證：repo B `build-image` 成功，watchtower redeploy `discord-agent`，agent log 顯示 listening on `:8090`；repo A `build-image` 成功，watchtower redeploy `discord-bot`，bot log 顯示已註冊 **23** 個 guild slash commands。
+- Ops probe（2026-06-05）：`docker ps` 顯示 `discord-agent`/`discord-bot`/`watchtower` healthy；agent `/health` → `200 ok`；未授權 `/stop` → `401 unauthorized`；授權但壞 payload `/stop` → `400 bad request`。
+- 已測：repo B typecheck + tests **42 pass** + smoke boot；repo A typecheck + smoke boot；repo A PR CI quality/build-smoke/security-scan/protected-paths 全綠。repo A 本機 `bun test` 仍有既有 dev DB pollution 導致 `ai_usage` 失敗，CI clean 環境通過。
+- **尚未做**：真 Discord UI 操作 `/agent-stop`；用低 `MAX_TASK_TOKENS` / `MAX_TASK_WALLCLOCK_MS` 的 live budget E2E；restart cleanup live E2E。
 
 **M3（動工 loop）完成且端到端驗證通過。自我修改 loop 全鏈打通。**
 - repo A PR **#17**（bot 側確認按鈕）+ repo B PR **#3**（agent 動工核心）已 merge 進 main（#17 因縱深防禦 security-scan/protected-paths 紅，以 `--admin` 人工過閘）。
@@ -94,7 +96,7 @@
   - repo B **PR #4**（已 merge）：[HIGH] `run_git` `rm`/`mv` 路徑操作數過 `classifyPath` → 不再能繞過 `write_file` 守衛刪/改受保護檔；[MED] `classifyPath` 改 case-insensitive（擋 `dockerfile`/`.GitHub/` 之類 case-fold 繞過）；[MED] `safePath` 用 realpath 解最近存在祖先 → 擋 worktree 內 symlink 逃逸；[LOW] `redact()` 加遮 base64 auth header；[LOW] `/ingest`+`/confirm` secret 改 `timingSafeEqual`。+1 test（rm/mv 守衛）→ 27 pass。
   - DeepSeek model 預設 `deepseek-v4-flash` **刻意保留**（官方 `deepseek-chat` API 2026-07-24 棄用）。
 
-## M4 已實作（PR #24 + PR #5，待 merge；2026-06-05）
+## M4 已完成（PR #24 + PR #5 已 merge；2026-06-05）
 設計 §3/§8 M4 + 計畫 `~/.claude/plans/humble-rolling-quail.md`。決策：審批 = **loop 中即時核准 + PR 閘**；mod 身分 = **ManageGuild**；預算護欄留 M5。
 - **APPROVE 拆兩級**（repo B `paths.ts`）：`APPROVE`＝`package.json`/`bun.lock`（CI protected-paths 不擋 → mod 核准後可合併）→ loop 中跑 mod 核准；`DENY`＝infra/guardrails（`.github`/`scripts`/Dockerfile/compose/守則 md/`.env*`/traversal）→ CI 永遠硬擋 → `write_file` 直接拒（不發無效 mod ping）。
 - **mid-loop 核准**：`write_file` 命中 APPROVE → `gate.ts` registry + bot `/internal/mod-gate` 貼 `[核准]/[拒絕]`（ManageGuild）→ 核准才寫；拒絕 → 略過 + 鎖發話者；逾時 → 略過不鎖。
@@ -102,14 +104,24 @@
 - **lockout**：repo B `db.ts` `lockouts` 表（PK user+guild，expiry）。ingest 時對 `modify_request` 先查（chat/question 不受影響）。僅 mod 明示 deny 觸發；不做「命中 DENY 自動鎖」（避免誤鎖）。
 - **security-scan 降級**（repo A `scripts/security-scan.sh`）：flag-only `exit 0`（仍印旗標），把關交 merge 閘 mod。`protected-paths.sh` 維持硬擋（縱深防禦不弱化）。
 - bot 中繼：`interactionCreate` 加 `agentapprove_*`/`agentmerge_*`（ManageGuild 檢查）→ `agentModGate` → agent `/gate`。env 新增（選用，有預設）：`LOCKOUT_HOURS`/`APPROVE_TIMEOUT_MS`/`MERGE_TIMEOUT_MS`。
-- **已知限制（M5）**：mod 閘等待期間該 guild FIFO 阻塞（≤30min）；gate registry 在記憶體，agent 重啟 → 等待中 task 卡住（同 M3 confirm）。
+- **端到端驗證補記（2026-06-05）**：#24 merge 後再 merge #5；repo B `build-image` 成功且 watchtower 自動 redeploy agent。task #4 `/pong` 走 PR #26、CI 全綠、merge gate approve、agent merge、bot `build-image`、watchtower redeploy 全通。task #5 `package.json` approval deny 寫入 lockout；task #6 同 user modify_request 被擋；task #7 同 user question 正常完成。
+
+## M5 已完成後端護欄（PR #28 + repo B #6/#7 已 merge；2026-06-05）
+設計 §8 M5。決策：restart 採 **乾淨失敗**，不在本階段 resume；預算與 stop 先在 agent service 強制，bot 僅提供 slash command 中繼。
+- **repo A（#28）**：新增 ManageGuild-only `/agent-stop task-id:<id> reason:<optional>`；`utils/agent.ts` `agentStop()` 轉送 `POST {AGENT_SERVICE_URL}/stop`，使用既有 `X-Internal-Secret`。
+- **repo B（#6）**：新增 internal `POST /stop`；stop registry 會中止 task、解除 pending confirm / mod gate、標 `cancelled` 並清 worktree。新增每 guild rolling 24h modify task 上限，預設 `MAX_MODIFY_TASKS_PER_GUILD_PER_DAY=5`。新增 wallclock 預算，預設 `MAX_TASK_WALLCLOCK_MS=1800000`。
+- **repo B（#7）**：記錄 DeepSeek usage 到 task columns（`prompt_tokens`/`completion_tokens`/`total_tokens`），在 classify / plan / work-loop 呼叫後累加；超過 `MAX_TASK_TOKENS`（預設 `60000`）即停止並清 worktree。
+- **restart cleanup**：agent 啟動時把 `queued`/`running`/`awaiting_confirm`/`awaiting_approval`/`awaiting_merge`/`working` 標成 `error`，reason 為 `agent service restarted before task completed`。目前不自動 resume。
+- **live ops 注意**：daily modify limit 只擋 `modify_request`；chat/question 仍可用。若要暫時關閉 daily limit，repo B 允許 `MAX_MODIFY_TASKS_PER_GUILD_PER_DAY=0`。
 
 ## 下一步
 1. ✓ ~~修 watchtower~~ 已完成（2026-06-04，PR #20+#21）。自動部署鏈恢復。
-2. **M4 收尾**：merge #24（admin，因 protected-paths）→ merge #5 → 端到端驗證：(a) `/pong` 需求 → PR + CI 綠 → ManageGuild 帳號按 [Merge] → GitHub merge → watchtower 部署；(b) 改 `package.json` → [拒絕] → 略過 + 發話者鎖 30h → 再丟 modify_request 被拒。確認 Gemini 頻道 + chat/question 不受影響。
-3. **M5（成本護欄與營運）**：每 guild 每日 task/花費上限、每 task token+wallclock 預算、`[Stop]`/`/agent stop` kill switch + 清 worktree、重啟 resume / 乾淨失敗通知。見設計 §8。
-4. ✓ ~~`code-review` / `security-review`~~ 已完成（2026-06-05，repo A #23 + repo B #4）。M3 動工 loop findings 全修上線。
-5. M4 計畫文件：`~/.claude/plans/humble-rolling-quail.md`。
+2. ✓ ~~M4 收尾~~ 已完成（2026-06-05）：PR + CI + merge gate + watchtower deploy、APPROVE deny lockout、lockout follow-up、chat/question 不受影響。
+3. **M5 live ops validation**：用真 Discord UI 建立長跑或 gate-waiting task → `/agent-stop task-id:<id>` → 確認停止訊息、task `cancelled`、pending gate/confirm 清除、worktree 已清。
+4. **M5 budget validation**：在受控環境臨時調低 `MAX_TASK_TOKENS` 與 `MAX_TASK_WALLCLOCK_MS`，確認超限會停止、回覆原因、清 worktree；再恢復正式值。
+5. **M5 restart validation**：建立或模擬 in-flight task，restart `discord-agent`，確認 interrupted lifecycle states 變 `error` 且 reason 清楚。
+6. **Resume 決策**：目前 restart 是乾淨失敗，不 resume。若仍要 true resume，先寫小 spec，因會影響 worktree、branch、PR、confirm/gate state 語意。
+7. ✓ ~~`code-review` / `security-review`~~ 已完成（2026-06-05，repo A #23 + repo B #4）。M3 動工 loop findings 全修上線。
 
 ## 待人類決定/動作
 - ✓ `.env.agent` 已建（`INTERNAL_SECRET` 兩邊一致、`DEEPSEEK_API_KEY`、`GITHUB_PAT`、`GITHUB_REPO=Lani0516/discord-bot`）；bot `.env` 已對齊 `AGENT_SERVICE_URL`+`INTERNAL_SECRET`。security 已掃：兩 repo 無密鑰外洩、PAT 一致、gitignore OK。
