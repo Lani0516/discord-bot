@@ -32,6 +32,34 @@ export async function forwardToAgent(payload: AgentIngestPayload): Promise<void>
   }
 }
 
+export type ModGateKind = 'approve' | 'merge';
+export type ModGateDecision = 'approve' | 'deny';
+
+// Relays a mod's approval/merge decision back to the agent. (M4)
+export async function agentModGate(
+  kind: ModGateKind,
+  taskId: number,
+  seq: number,
+  decision: ModGateDecision,
+): Promise<void> {
+  const base = process.env.AGENT_SERVICE_URL;
+  const secret = process.env.INTERNAL_SECRET;
+  if (!base || !secret) throw new Error('agent service not configured');
+
+  const res = await fetch(`${base.replace(/\/$/, '')}/gate`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-internal-secret': secret,
+    },
+    body: JSON.stringify({ kind, taskId, seq, decision }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`agent gate failed: ${res.status} ${await res.text()}`);
+  }
+}
+
 export type ConfirmAction = 'start' | 'cancel';
 
 // Relays a requester's plan confirmation (Start/Cancel) back to the agent.

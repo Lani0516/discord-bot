@@ -87,6 +87,10 @@ Bun.serve({
       return handleInternalPlan(req);
     }
 
+    if (req.method === 'POST' && url.pathname === '/internal/mod-gate') {
+      return handleInternalModGate(req);
+    }
+
     const ready = client.isReady();
     return new Response(ready ? 'ok' : 'starting', { status: ready ? 200 : 503 });
   },
@@ -187,6 +191,88 @@ async function handleInternalPlan(req: Request): Promise<Response> {
     return new Response('ok', { status: 200 });
   } catch (err) {
     console.error('[internal/plan] send failed:', err);
+    return new Response('send failed', { status: 500 });
+  }
+}
+
+interface InternalModGateBody {
+  channelId: string;
+  kind: 'approve' | 'merge';
+  taskId: number;
+  seq?: number;
+  requesterId: string;
+  prUrl?: string;
+  summary: string;
+}
+
+// Posts a mod-only approval gate (mid-loop APPROVE write, or finished-PR merge)
+// with [核准]/[拒絕] or [Merge]/[Reject] buttons. The button click checks
+// ManageGuild before relaying the decision to the agent. (M4)
+async function handleInternalModGate(req: Request): Promise<Response> {
+  if (!secretEquals(req.headers.get('x-internal-secret'), process.env.INTERNAL_SECRET)) {
+    return new Response('unauthorized', { status: 401 });
+  }
+
+  let body: InternalModGateBody;
+  try {
+    body = (await req.json()) as InternalModGateBody;
+  } catch {
+    return new Response('bad json', { status: 400 });
+  }
+
+  if (
+    !body.channelId ||
+    (body.kind !== 'approve' && body.kind !== 'merge') ||
+    typeof body.taskId !== 'number' ||
+    !body.requesterId ||
+    typeof body.summary !== 'string'
+  ) {
+    return new Response('bad request', { status: 400 });
+  }
+
+  try {
+    const channel = await client.channels.fetch(body.channelId);
+    if (!channel || !channel.isSendable()) {
+      return new Response('channel not sendable', { status: 404 });
+    }
+
+    let text: string;
+    let row: ActionRowBuilder<ButtonBuilder>;
+    if (body.kind === 'approve') {
+      const seq = body.seq ?? 0;
+      text = `⚠️ **需要管理員核准**\n${body.summary}`;
+      row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`agentapprove_yes_${body.taskId}_${seq}_${body.requesterId}`)
+          .setLabel('核准')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`agentapprove_no_${body.taskId}_${seq}_${body.requesterId}`)
+          .setLabel('拒絕')
+          .setStyle(ButtonStyle.Danger),
+      );
+    } else {
+      text = `✅ **PR 就緒，待合併**\n${body.prUrl ?? ''}\n${body.summary}`;
+      row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`agentmerge_yes_${body.taskId}_${body.requesterId}`)
+          .setLabel('Merge')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`agentmerge_no_${body.taskId}_${body.requesterId}`)
+          .setLabel('Reject')
+          .setStyle(ButtonStyle.Danger),
+      );
+    }
+
+    const chunks = chunkMessage(text);
+    for (let i = 0; i < chunks.length; i++) {
+      const isLast = i === chunks.length - 1;
+      await channel.send(isLast ? { content: chunks[i], components: [row] } : chunks[i]);
+    }
+    return new Response('ok', { status: 200 });
+  } catch (err) {
+    console.error('[internal/mod-gate] send failed:', err);
     return new Response('send failed', { status: 500 });
   }
 }
