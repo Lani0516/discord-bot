@@ -1,6 +1,11 @@
 # Handoff — Discord 自我修改 AI Agent
 
 ## 狀態
+**M4（審批與懲罰）已實作，兩 PR 開啟待 merge + 端到端驗證。M3 已完成並 e2e 通過。**
+- M4 PR：repo A **#24**（`feat/m4-mod-gate-buttons`）+ repo B **#5**（`feat/m4-approval-loop`）。先 merge #24（bot 側 dormant）再 merge #5（啟用）。#24 因動 `scripts/security-scan.sh` → protected-paths 紅 → admin merge。
+- 本機全綠：repo A typecheck/smoke OK、`bun test` CI-clean（本機 ai_usage 測試因共用 dev db 累積列失敗，與 M4 無關）；repo B typecheck + `bun test` 36 pass + smoke OK。
+- **尚未做**：兩 PR merge 後的端到端（merge 閘真按 [Merge] + lockout 真鎖）驗證。
+
 **M3（動工 loop）完成且端到端驗證通過。自我修改 loop 全鏈打通。**
 - repo A PR **#17**（bot 側確認按鈕）+ repo B PR **#3**（agent 動工核心）已 merge 進 main（#17 因縱深防禦 security-scan/protected-paths 紅，以 `--admin` 人工過閘）。
 - **端到端驗證（2026-06-04，全綠）**：agent 頻道丟「新增 /ping 回 Pong」→ DeepSeek 分類 modify → 出計畫 + `[開始]/[取消]` 按鈕 → 點[開始] → worktree → 寫 `src/commands/fun/ping.ts` → push → 開 **PR #18** → harness 四 job **全綠**（quality/build-smoke/security-scan/protected-paths，src-only 無需人工過閘）→ 已 merge。Gemini `ai_channel_id` 路徑同時測試不受影響（回覆正常；模型自報 GPT-4 = 無害幻覺）。
@@ -89,11 +94,22 @@
   - repo B **PR #4**（已 merge）：[HIGH] `run_git` `rm`/`mv` 路徑操作數過 `classifyPath` → 不再能繞過 `write_file` 守衛刪/改受保護檔；[MED] `classifyPath` 改 case-insensitive（擋 `dockerfile`/`.GitHub/` 之類 case-fold 繞過）；[MED] `safePath` 用 realpath 解最近存在祖先 → 擋 worktree 內 symlink 逃逸；[LOW] `redact()` 加遮 base64 auth header；[LOW] `/ingest`+`/confirm` secret 改 `timingSafeEqual`。+1 test（rm/mv 守衛）→ 27 pass。
   - DeepSeek model 預設 `deepseek-v4-flash` **刻意保留**（官方 `deepseek-chat` API 2026-07-24 棄用）。
 
+## M4 已實作（PR #24 + PR #5，待 merge；2026-06-05）
+設計 §3/§8 M4 + 計畫 `~/.claude/plans/humble-rolling-quail.md`。決策：審批 = **loop 中即時核准 + PR 閘**；mod 身分 = **ManageGuild**；預算護欄留 M5。
+- **APPROVE 拆兩級**（repo B `paths.ts`）：`APPROVE`＝`package.json`/`bun.lock`（CI protected-paths 不擋 → mod 核准後可合併）→ loop 中跑 mod 核准；`DENY`＝infra/guardrails（`.github`/`scripts`/Dockerfile/compose/守則 md/`.env*`/traversal）→ CI 永遠硬擋 → `write_file` 直接拒（不發無效 mod ping）。
+- **mid-loop 核准**：`write_file` 命中 APPROVE → `gate.ts` registry + bot `/internal/mod-gate` 貼 `[核准]/[拒絕]`（ManageGuild）→ 核准才寫；拒絕 → 略過 + 鎖發話者；逾時 → 略過不鎖。
+- **merge 閘**：CI 全綠後 agent 不再止步，改貼 `[Merge]/[Reject]`（ManageGuild）。Merge → `mergePR`（squash，觸發 build-image→watchtower）；Reject → `closePR` + 鎖發話者 30h；逾時 → PR 保留不鎖。
+- **lockout**：repo B `db.ts` `lockouts` 表（PK user+guild，expiry）。ingest 時對 `modify_request` 先查（chat/question 不受影響）。僅 mod 明示 deny 觸發；不做「命中 DENY 自動鎖」（避免誤鎖）。
+- **security-scan 降級**（repo A `scripts/security-scan.sh`）：flag-only `exit 0`（仍印旗標），把關交 merge 閘 mod。`protected-paths.sh` 維持硬擋（縱深防禦不弱化）。
+- bot 中繼：`interactionCreate` 加 `agentapprove_*`/`agentmerge_*`（ManageGuild 檢查）→ `agentModGate` → agent `/gate`。env 新增（選用，有預設）：`LOCKOUT_HOURS`/`APPROVE_TIMEOUT_MS`/`MERGE_TIMEOUT_MS`。
+- **已知限制（M5）**：mod 閘等待期間該 guild FIFO 阻塞（≤30min）；gate registry 在記憶體，agent 重啟 → 等待中 task 卡住（同 M3 confirm）。
+
 ## 下一步
 1. ✓ ~~修 watchtower~~ 已完成（2026-06-04，PR #20+#21）。自動部署鏈恢復。
-2. **M4（審批與懲罰）**：security-scan 由「heuristic hard-fail」改為「flag → mod 核准」；APPROVE 路徑開放（M3 直接擋）；Deny/危險 → 發話者 lockout；每 guild 每日上限 + token/時間預算。
-3. **M5**：見設計 §8。
+2. **M4 收尾**：merge #24（admin，因 protected-paths）→ merge #5 → 端到端驗證：(a) `/pong` 需求 → PR + CI 綠 → ManageGuild 帳號按 [Merge] → GitHub merge → watchtower 部署；(b) 改 `package.json` → [拒絕] → 略過 + 發話者鎖 30h → 再丟 modify_request 被拒。確認 Gemini 頻道 + chat/question 不受影響。
+3. **M5（成本護欄與營運）**：每 guild 每日 task/花費上限、每 task token+wallclock 預算、`[Stop]`/`/agent stop` kill switch + 清 worktree、重啟 resume / 乾淨失敗通知。見設計 §8。
 4. ✓ ~~`code-review` / `security-review`~~ 已完成（2026-06-05，repo A #23 + repo B #4）。M3 動工 loop findings 全修上線。
+5. M4 計畫文件：`~/.claude/plans/humble-rolling-quail.md`。
 
 ## 待人類決定/動作
 - ✓ `.env.agent` 已建（`INTERNAL_SECRET` 兩邊一致、`DEEPSEEK_API_KEY`、`GITHUB_PAT`、`GITHUB_REPO=Lani0516/discord-bot`）；bot `.env` 已對齊 `AGENT_SERVICE_URL`+`INTERNAL_SECRET`。security 已掃：兩 repo 無密鑰外洩、PAT 一致、gitignore OK。
