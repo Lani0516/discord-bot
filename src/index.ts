@@ -5,6 +5,7 @@ import { readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { initDb } from './database.ts';
+import { registerGuildSlashCommands } from './utils/slashCommands.ts';
 import type { BotCommand, BotEvent } from './types.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,6 +70,20 @@ initDb();
 if (process.env.SMOKE_TEST === '1') {
   console.log('[smoke] boot ok: commands + events + db initialised');
   process.exit(0);
+}
+
+if (process.env.AUTO_DEPLOY_COMMANDS !== 'false') {
+  try {
+    const count = await registerGuildSlashCommands(
+      [...client.commands.values()].map((command) => command.data.toJSON()),
+    );
+    console.log(`[commands] registered ${count} guild slash commands`);
+  } catch (err) {
+    console.error('[commands] failed to register slash commands:', err);
+    if (process.env.REQUIRE_COMMAND_DEPLOY === 'true') {
+      process.exit(1);
+    }
+  }
 }
 
 // Liveness endpoint for container healthcheck / crash-loop monitor,
