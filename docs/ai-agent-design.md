@@ -18,7 +18,7 @@
 [ Agent service ]  ← 長駐、獨立。持有 GitHub token + DeepSeek API key
    │  - 單一便宜且支援 tool-calling 的模型（env 設定）
    │  - 每 guild 序列 FIFO queue，同時只跑 1 個 task
-   │  - 每步驟狀態寫入 DB，重啟可 resume 或乾淨失敗
+   │  - 每步驟狀態寫入 DB，重啟時中斷 task 乾淨失敗
    │  - 工具：read / write / git（無 bash、無本機執行）
    │  - 工作區：git worktree，branch = feat/<taskId>，checkout 自 REPO A
    ▼
@@ -42,7 +42,7 @@
 | 模型 | 單一便宜可靠的 tool-calling 模型，env 設定，無 fallback；預設使用 `deepseek-v4-flash` |
 | 隔離 | git worktree + branch，PR-gated |
 | 部署 | Docker + watchtower/CI，rollback = 前一 image tag |
-| Agent 執行位置 | 獨立長駐 service（不隨 bot 部署被殺） |
+| Agent 執行位置 | 獨立長駐 service（不隨 bot 部署被殺；重啟時中斷 task 乾淨標 error） |
 | 工具面 | 僅 typed 工具 read/write/git，**完全無 bash** |
 | 自我保護 | **雙 repo 物理隔離**，agent 碰不到自己的 guardrails |
 | 通訊 | Bot 獨占 Discord token，bot↔agent 走內部 HTTP |
@@ -64,6 +64,7 @@
 5. push branch → CI 跑 harness。失敗 → agent 修 → 重跑（有上限）。通過 → 開 PR。
 6. bot 在頻道貼 PR 連結 + diff 摘要 + `[Merge] / [Reject]`（限 ManageGuild 或 `@bot-mod`）。
 7. Merge → CI build image → watchtower 部署。bot 透過 container 重建自我更新。
+8. 管理員可用 `/agent-stop task-id:<id>` 停止進行中或等待確認/審批的 task。
 
 ---
 
@@ -85,15 +86,15 @@
 | 任意程式碼執行 | 無 bash；所有執行在 CI（無正式環境密鑰）；agent host 不跑任何不可信程式碼 |
 | PR 中藏惡意碼 | diff/path 掃描 + 相依套件與網路偵測 → mod 核准；smoke-boot + CI 把關 |
 | 密鑰外洩 | Discord token 只在 bot；GitHub+DeepSeek API key 只在 agent；CI 無正式密鑰 |
-| 失控 / 燒錢 | 修復迭代上限 + 每 task token/時間預算 + `/agent stop` + 每 guild 每日上限 |
+| 失控 / 燒錢 | 修復迭代上限 + 每 task token/時間預算 + `/agent-stop` + 每 guild 每日上限 |
 | 惡意使用者 | Deny/危險 → 發話者 30h lockout |
 | 部署炸機 | CI smoke-boot job + image tag rollback |
 
 ### 成本護欄（全採用）
 - 每 task 修復迭代上限（如 5 次 push→CI→fix 循環）
-- 每 task token + wallclock 預算（如 30 分鐘）
-- kill switch：`[Stop]` 按鈕 / `/agent stop <taskId>`，立即中止 + 清 worktree
-- 每 guild 每日上限：task 數 + 花費；達標後拒新功能工作（閒聊/問答仍可）
+- 每 task token + wallclock 預算（預設 60k tokens / 30 分鐘）
+- kill switch：`/agent-stop task-id:<id>`，立即中止 + 清 worktree；bot 側要求 ManageGuild
+- 每 guild 每日修改任務上限（預設 5 件 rolling 24h）；達標後拒新功能工作（閒聊/問答仍可）
 
 ---
 
@@ -172,10 +173,12 @@ agent loop 是 push 驅動、CI 節奏：write → push → 等 CI → 讀狀態
 
 ### M5 — 成本護欄與營運
 - 每 task：修復迭代上限、token + wallclock 預算。
-- `[Stop]` / `/agent stop <taskId>` kill switch + 清 worktree。
-- 每 guild 每日 task 數 + 花費上限。
+- `/agent-stop task-id:<id>` kill switch + 清 worktree。
+- 每 guild 每日 task 數上限；花費以 per-task token budget 間接控制。
 - 重啟 resume / 乾淨失敗通知。
-- **驗證**：模擬 CI 連續失敗 → 達上限自動收手交人；`/agent stop` 立即中止。
+- **驗證**：模擬 CI 連續失敗 → 達上限自動收手交人；`/agent-stop` 立即中止。
+
+**實作狀態（2026-06-05）**：M5 後端護欄已 merge/deploy。repo B #6 加 `/stop`、stop/cancel registry、per-guild rolling 24h modify limit、wallclock budget、restart interrupted-task cleanup；repo B #7 加 DeepSeek token usage 記錄與 `MAX_TASK_TOKENS` enforcement；repo A #28 加 ManageGuild-only `/agent-stop`。目前 restart 採乾淨失敗，不自動 resume。live ops validation 尚待用真 Discord UI 補做。
 
 ### 風險最高、優先做對
 - **M0 雙 repo + token 權限範圍**（自我保護的根基）。
