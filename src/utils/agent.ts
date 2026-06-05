@@ -81,3 +81,22 @@ export async function agentConfirm(taskId: number, action: ConfirmAction): Promi
     throw new Error(`agent confirm failed: ${res.status} ${await res.text()}`);
   }
 }
+
+export async function agentStop(taskId: number, reason?: string): Promise<void> {
+  const base = process.env.AGENT_SERVICE_URL;
+  const secret = process.env.INTERNAL_SECRET;
+  if (!base || !secret) throw new Error('agent service not configured');
+
+  const res = await fetch(`${base.replace(/\/$/, '')}/stop`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-internal-secret': secret,
+    },
+    body: JSON.stringify({ taskId, reason }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`agent stop failed: ${res.status} ${await res.text()}`);
+  }
+}
