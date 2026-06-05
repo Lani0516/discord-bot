@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { Client, Collection, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { timingSafeEqual } from 'node:crypto';
 import { readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -91,14 +92,21 @@ Bun.serve({
   },
 });
 
+function secretEquals(got: string | null, expected: string | undefined): boolean {
+  if (!expected || got === null) return false;
+  const a = Buffer.from(got);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 interface InternalReplyBody {
   channelId: string;
   content: string;
 }
 
 async function handleInternalReply(req: Request): Promise<Response> {
-  const secret = process.env.INTERNAL_SECRET;
-  if (!secret || req.headers.get('x-internal-secret') !== secret) {
+  if (!secretEquals(req.headers.get('x-internal-secret'), process.env.INTERNAL_SECRET)) {
     return new Response('unauthorized', { status: 401 });
   }
 
@@ -136,8 +144,7 @@ interface InternalPlanBody {
 }
 
 async function handleInternalPlan(req: Request): Promise<Response> {
-  const secret = process.env.INTERNAL_SECRET;
-  if (!secret || req.headers.get('x-internal-secret') !== secret) {
+  if (!secretEquals(req.headers.get('x-internal-secret'), process.env.INTERNAL_SECRET)) {
     return new Response('unauthorized', { status: 401 });
   }
 
