@@ -6,7 +6,8 @@ RUN bun install --frozen-lockfile --production
 
 FROM oven/bun:1.3.14-slim AS runtime
 WORKDIR /app
-ENV NODE_ENV=production HEALTH_PORT=8080
+ARG BUILD_SHA=unknown
+ENV NODE_ENV=production HEALTH_PORT=8080 BUILD_SHA=$BUILD_SHA
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock tsconfig.json ./
 COPY src ./src

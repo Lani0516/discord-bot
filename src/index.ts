@@ -106,6 +106,11 @@ Bun.serve({
       return handleInternalModGate(req);
     }
 
+    // Lets the agent confirm the post-merge redeploy landed (bound to its task).
+    if (req.method === 'GET' && url.pathname === '/version') {
+      return new Response(process.env.BUILD_SHA ?? 'unknown', { status: 200 });
+    }
+
     const ready = client.isReady();
     return new Response(ready ? 'ok' : 'starting', { status: ready ? 200 : 503 });
   },
