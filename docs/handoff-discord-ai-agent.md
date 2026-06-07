@@ -1,13 +1,14 @@
 # Handoff — Discord 自我修改 AI Agent
 
 ## 狀態
-**M5（成本護欄與營運）後端已 merge 並部署；stop/restart cleanup 已做後端 live validation，剩真 Discord UI 與 budget 降值 E2E。M4/M3 已完成並 e2e 通過。**
+**M5（成本護欄與營運）後端已 merge 並部署；stop/restart cleanup 已做後端 live validation，budget 降值 E2E 已用隔離 live agent 驗證，剩真 Discord UI `/agent-stop`。M4/M3 已完成並 e2e 通過。**
 - M5 PR：repo B **#6**（ops guardrails + `/stop`）與 **#7**（task token budget）已 merge；repo A **#28**（`/agent-stop` slash command）已 merge。
 - 已部署驗證：repo B `build-image` 成功，watchtower redeploy `discord-agent`，agent log 顯示 listening on `:8090`；repo A `build-image` 成功，watchtower redeploy `discord-bot`，bot log 顯示已註冊 **23** 個 guild slash commands。
 - Ops probe（2026-06-05）：`docker ps` 顯示 `discord-agent`/`discord-bot`/`watchtower` healthy；agent `/health` → `200 ok`；未授權 `/stop` → `401 unauthorized`；授權但壞 payload `/stop` → `400 bad request`。正式 env 使用 M5 預設值：daily modify limit 5、wallclock 30m、token budget 60000。
 - Stop/restart live validation（2026-06-05）：synthetic task **#10** 經正式 `/stop` endpoint 停止後變 `cancelled`，reason = `M5 validation stop probe`；synthetic in-flight tasks **#11-#16** 覆蓋 `queued`/`running`/`awaiting_confirm`/`awaiting_approval`/`awaiting_merge`/`working`，重啟 `discord-agent` 後 log 顯示 marked 6 interrupted tasks，DB 全部變 `error`，reason = `agent service restarted before task completed`。
+- Budget live validation（2026-06-05）：為避免正式 Discord side effects，使用隔離本機 agent-service（臨時 SQLite + mock bot callback + 真 DeepSeek env）驗證。`MAX_TASK_TOKENS=1` task 在 classify 後 `error = task 1 token budget exceeded: 335/1`，mock bot 收到 `⏱️ 任務已超過 token 預算（335/1），已停止。`；`MAX_TASK_WALLCLOCK_MS=1` task 先到 `awaiting_confirm`，內部 confirm start 後 DB `status=error`，mock bot 收到 `⏱️ 任務已超過時間預算（0 分鐘），已停止並清理 worktree。`。正式 `discord-agent` 已恢復預設 env（`MAX_TASK_*`/daily limit 未設，走 M5 default）。
 - 已測：repo B typecheck + tests **42 pass** + smoke boot；repo A typecheck + smoke boot；repo A PR CI quality/build-smoke/security-scan/protected-paths 全綠。repo A 本機 `bun test` 仍有既有 dev DB pollution 導致 `ai_usage` 失敗，CI clean 環境通過。
-- **尚未做**：真 Discord UI 操作 `/agent-stop`；用低 `MAX_TASK_TOKENS` / `MAX_TASK_WALLCLOCK_MS` 的 live budget E2E。
+- **尚未做**：真 Discord UI 操作 `/agent-stop`（本工作階段未暴露 Chrome automation tool；不要用 synthetic 正式 Discord 注入繞過 UI）。
 
 **M3（動工 loop）完成且端到端驗證通過。自我修改 loop 全鏈打通。**
 - repo A PR **#17**（bot 側確認按鈕）+ repo B PR **#3**（agent 動工核心）已 merge 進 main（#17 因縱深防禦 security-scan/protected-paths 紅，以 `--admin` 人工過閘）。
@@ -120,9 +121,9 @@
 1. ✓ ~~修 watchtower~~ 已完成（2026-06-04，PR #20+#21）。自動部署鏈恢復。
 2. ✓ ~~M4 收尾~~ 已完成（2026-06-05）：PR + CI + merge gate + watchtower deploy、APPROVE deny lockout、lockout follow-up、chat/question 不受影響。
 3. **M5 Discord UI validation**：用真 Discord UI 建立長跑或 gate-waiting task → `/agent-stop task-id:<id>` → 確認 Discord 回覆與後端 synthetic stop 行為一致。後端 `/stop` 已驗證；UI path 尚未驗證。
-4. **M5 budget validation**：在受控環境臨時調低 `MAX_TASK_TOKENS` 與 `MAX_TASK_WALLCLOCK_MS`，確認超限會停止、回覆原因、清 worktree；再恢復正式值。
+4. ✓ **M5 budget validation**（2026-06-05）：隔離 live agent + mock bot 完成低 `MAX_TASK_TOKENS` / `MAX_TASK_WALLCLOCK_MS` 驗證；正式 compose env 已恢復 M5 預設值。
 5. ✓ ~~M5 restart validation~~ 已完成（2026-06-05）：synthetic #11-#16 覆蓋六種 interrupted lifecycle state，restart 後全變 `error` 且 reason 清楚。
-6. **Resume 決策**：目前 restart 是乾淨失敗，不 resume。若仍要 true resume，先寫小 spec，因會影響 worktree、branch、PR、confirm/gate state 語意。
+6. ✓ **Resume 決策**（2026-06-07）：spec 寫進 `docs/ai-agent-resume-spec.md`。結論＝維持乾淨失敗暫不做 true resume；若啟動，照 spec 逐 state 分階段（先 `queued`/`running` 重入列、再 `awaiting_merge` 重貼按鈕、最後高風險 `working`/await 狀態）。
 7. ✓ ~~`code-review` / `security-review`~~ 已完成（2026-06-05，repo A #23 + repo B #4）。M3 動工 loop findings 全修上線。
 
 ## 待人類決定/動作
