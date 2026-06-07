@@ -45,7 +45,12 @@ Agent modify requests follow this flow:
 2. The bot forwards the message to `discord-agent-service`.
 3. The agent classifies the request, posts a plan, and waits for the requester to press Start or Cancel.
 4. For approved work, the agent creates a branch/worktree, changes repo A (`discord-bot`), opens a GitHub PR, waits for CI, then asks a Manage Server moderator to Merge or Reject.
-5. Infrastructure and guardrail paths remain protected. Dependency changes require moderator approval before writing.
+5. After a moderator merges, the agent watches the bot's `GET /version` endpoint until it serves the merged commit SHA, then posts a `🚀 已上線` confirmation in the agent channel so the requester knows the redeploy actually landed.
+6. Infrastructure and guardrail paths remain protected. Dependency changes require moderator approval before writing.
+
+#### Deploy confirmation
+
+The bot bakes its build commit into the image as `BUILD_SHA` and serves it at `GET /version`. When a post-merge redeploy completes, watchtower recreates the bot container on the new image, and `/version` begins serving the new SHA. The agent polls this endpoint after a merge and posts `🚀 已上線` once the running bot reports the expected SHA, or a timeout note if the redeploy does not land in time. This is what turns "PR merged" into a user-visible "your change is live" signal.
 
 ### Fun Commands
 
@@ -171,6 +176,7 @@ INTERNAL_SECRET=shared-random-secret
 | `AGENT_SERVICE_URL` | Agent only | Agent service base URL. Docker Compose default is `http://agent:8090`. |
 | `INTERNAL_SECRET` | Agent only | Shared bot-agent secret sent as `X-Internal-Secret`. Must match `.env.agent`. |
 | `HEALTH_PORT` | Docker/default | Bot health and internal callback port. Compose sets `8080`. |
+| `BUILD_SHA` | CI/Docker | Git commit SHA baked into the image at build time, served by `GET /version`. Set automatically by the image build; leave unset for local runs (`/version` then returns `unknown`). |
 | `SMOKE_TEST` | CI only | `1` loads commands/events/db and exits without Discord login. |
 
 ### Agent `.env.agent`
@@ -348,6 +354,7 @@ docker compose down -v
 ## Health and Operations
 
 - Bot health endpoint inside the container: `http://127.0.0.1:8080/`
+- Bot build-version endpoint inside the container: `http://127.0.0.1:8080/version` (returns the baked `BUILD_SHA`, or `unknown` if unset)
 - Agent health endpoint inside the container: `http://127.0.0.1:8090/health`
 - Bot internal callbacks used by the agent:
   - `POST /internal/reply`
