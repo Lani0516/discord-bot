@@ -45,7 +45,12 @@ Coding agent 是可選功能，獨立跑在 `discord-agent-service` 容器中。
 2. Bot 將訊息轉送到 `discord-agent-service`。
 3. Agent 分類需求、貼出計畫，等待發話者按「開始」或「取消」。
 4. 開始後 agent 建立 branch/worktree、修改 repo A（`discord-bot`）、開 GitHub PR、等待 CI，再請有管理伺服器權限的管理員按 Merge 或 Reject。
-5. Infra 與 guardrail 路徑維持保護；相依套件變更需要管理員核准後才會寫入。
+5. 管理員 merge 後，agent 會輪詢 bot 的 `GET /version` endpoint，直到它回傳已 merge 的 commit SHA，接著在 agent 頻道貼出 `🚀 已上線` 確認，讓發話者知道 redeploy 真的完成。
+6. Infra 與 guardrail 路徑維持保護；相依套件變更需要管理員核准後才會寫入。
+
+#### 部署確認
+
+Bot 會在 build image 時把 commit 烤進 `BUILD_SHA`，並由 `GET /version` 提供。Post-merge redeploy 完成時，watchtower 以新 image 重建 bot container，`/version` 便開始回傳新的 SHA。Agent 在 merge 後輪詢此 endpoint，當執行中的 bot 回報預期 SHA 即貼出 `🚀 已上線`；若 redeploy 未在時限內完成則貼出 timeout 提示。這把「PR 已 merge」轉成使用者看得到的「你的變更已上線」訊號。
 
 ### 趣味互動
 
@@ -171,6 +176,7 @@ INTERNAL_SECRET=shared-random-secret
 | `AGENT_SERVICE_URL` | agent 功能需要 | Agent service base URL；Docker Compose 預設 `http://agent:8090`。 |
 | `INTERNAL_SECRET` | agent 功能需要 | Bot 與 agent 共用密鑰，透過 `X-Internal-Secret` 傳送。必須與 `.env.agent` 一致。 |
 | `HEALTH_PORT` | Docker/預設 | Bot health 與 internal callback port；Compose 設為 `8080`。 |
+| `BUILD_SHA` | CI/Docker | Build 時烤進 image 的 git commit SHA，由 `GET /version` 提供。Image build 會自動設定;本機執行可不設(此時 `/version` 回傳 `unknown`)。 |
 | `SMOKE_TEST` | CI 用 | `1` 時只載入 commands/events/db 後退出，不登入 Discord。 |
 
 ### Agent `.env.agent`
@@ -352,6 +358,7 @@ docker compose down -v
 ## Health 與營運
 
 - Bot container 內 health endpoint：`http://127.0.0.1:8080/`
+- Bot container 內 build 版本 endpoint：`http://127.0.0.1:8080/version`(回傳烤進的 `BUILD_SHA`,未設定時回 `unknown`)
 - Agent container 內 health endpoint：`http://127.0.0.1:8090/health`
 - Agent 會呼叫的 bot internal callbacks：
   - `POST /internal/reply`
