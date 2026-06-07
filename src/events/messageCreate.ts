@@ -1,4 +1,4 @@
-import { Events, Message, TextChannel } from 'discord.js';
+import { Events, Message, PermissionFlagsBits, TextChannel } from 'discord.js';
 import { getAiResponse, isOnCooldown, setCooldown } from '../utils/gemini.ts';
 import { getServerConfig } from '../database.ts';
 import { forwardToAgent, isAgentConfigured } from '../utils/agent.ts';
@@ -94,6 +94,7 @@ async function handleAgentMessage(message: Message) {
       userName: message.member?.displayName ?? message.author.username,
       content,
       messageId: message.id,
+      isModerator: message.member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false,
     });
   } catch (err) {
     console.error('[agent] forward failed:', err);
