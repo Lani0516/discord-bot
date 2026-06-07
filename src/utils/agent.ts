@@ -5,6 +5,7 @@ export interface AgentIngestPayload {
   userName: string;
   content: string;
   messageId: string;
+  isModerator: boolean;
 }
 
 export function isAgentConfigured(): boolean {
